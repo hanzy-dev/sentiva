@@ -2,13 +2,10 @@ import { CORRELATION_ID_HEADER } from "@/lib/http/request-id";
 import { logger } from "@/lib/logging/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-function isAuthSessionMissing(err: unknown) {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "name" in err &&
-    (err as any).name === "AuthSessionMissingError"
-  );
+function isAuthSessionMissing(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  if (!("name" in err)) return false;
+  return (err as { name?: unknown }).name === "AuthSessionMissingError";
 }
 
 export async function GET(request: Request) {
@@ -17,10 +14,10 @@ export async function GET(request: Request) {
   try {
     const supabase = createSupabaseServerClient();
 
-    // This may throw when there's no session; treat as "none" not "down"
+    // anonymous requests: may throw missing session → treat as "none"
     try {
       await supabase.auth.getUser();
-    } catch (err) {
+    } catch (err: unknown) {
       if (isAuthSessionMissing(err)) {
         logger.info(
           { correlation_id: correlationId },
@@ -52,7 +49,7 @@ export async function GET(request: Request) {
       { ok: true, service: "sentiva", checks: { auth: "ok", db: "ok" } },
       { status: 200 }
     );
-  } catch (err) {
+  } catch (err: unknown) {
     logger.error({ correlation_id: correlationId, err }, "health error");
     return Response.json({ ok: false, service: "sentiva" }, { status: 500 });
   }
