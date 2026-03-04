@@ -26,15 +26,42 @@ export async function POST(request: Request) {
 
   const { original_name, mime_type, size_bytes } = parsed.data;
 
-  // allowlist mime (MVP)
+  // allowlist mime - Diperluas untuk Dokumen, Gambar, Video, dan Audio
   const allowed = new Set([
+    // Dokumen & Teks
     "application/pdf",
+    "text/plain",
+    "application/msword", // .doc
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+    "application/vnd.ms-excel", // .xls
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+    "application/vnd.ms-powerpoint", // .ppt
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+
+    // Gambar
     "image/png",
     "image/jpeg",
-    "text/plain",
+    "image/jpg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+
+    // Video
+    "video/mp4",
+    "video/mpeg",
+    "video/quicktime", // .mov
+    "video/x-msvideo", // .avi
+    "video/webm",
+
+    // Audio
+    "audio/mpeg", // .mp3
+    "audio/wav",
+    "audio/ogg",
+    "audio/webm",
   ]);
+
   if (!allowed.has(mime_type)) {
-    return jsonError("BAD_REQUEST", "Tipe file tidak diizinkan.", 400);
+    return jsonError("BAD_REQUEST", `Tipe file (${mime_type}) tidak diizinkan.`, 400);
   }
 
   // generate object path scoped by owner
