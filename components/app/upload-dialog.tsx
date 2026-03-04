@@ -91,10 +91,10 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
   }
 
   function handleCancel() {
-    abortRef.current?.abort();
     toast.message("Upload dibatalkan");
     setIsUploading(false);
     setProgress(0);
+    setFile(null);
   }
 
   return (
