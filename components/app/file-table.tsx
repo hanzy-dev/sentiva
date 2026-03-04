@@ -21,6 +21,12 @@ function formatBytes(bytes: number) {
   return `${mb.toFixed(1)} MB`;
 }
 
+function getErrorMessage(err: unknown) {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "Terjadi kesalahan";
+}
+
 export function FileTable({
   refreshKey,
   onChanged,
@@ -50,7 +56,6 @@ export function FileTable({
 
   React.useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
   async function handleShare(id: string) {
@@ -67,8 +72,8 @@ export function FileTable({
 
       await navigator.clipboard.writeText(j.share_url);
       toast.success("Tautan dibuat & disalin ke clipboard");
-    } catch (err: any) {
-      toast.error(err?.message ?? "Gagal membuat tautan");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err) ?? "Gagal membuat tautan");
     } finally {
       setBusyId(null);
     }
@@ -84,8 +89,8 @@ export function FileTable({
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal download");
 
       window.location.href = j.url;
-    } catch (err: any) {
-      toast.error(err?.message ?? "Gagal download");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err) ?? "Gagal download");
     } finally {
       setBusyId(null);
     }
@@ -104,8 +109,8 @@ export function FileTable({
       toast.success("File dipindahkan ke sampah");
       await load();
       onChanged?.();
-    } catch (err: any) {
-      toast.error(err?.message ?? "Gagal hapus file");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err) ?? "Gagal hapus file");
     } finally {
       setBusyId(null);
     }
