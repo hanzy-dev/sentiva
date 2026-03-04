@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/app/page-header";
+import { UploadDialog } from "@/components/app/upload-dialog"; // [1] Import sudah benar
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,8 @@ export default function DashboardPage() {
       <PageHeader
         title="Vault Saya"
         description="Kelola file privat kamu. Unggah cepat, unduh aman, dan bagikan tautan sekali pakai."
-        action={<Button disabled>Unggah File</Button>}
+        // [2] GANTI <Button disabled>...</Button> MENJADI <UploadDialog />
+        action={<UploadDialog />} 
       />
 
       <Card>
@@ -39,7 +41,6 @@ export default function DashboardPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {/* Table header */}
           <div className="rounded-lg border">
             <div className="grid grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
               <div className="col-span-5">Nama</div>
@@ -60,14 +61,15 @@ export default function DashboardPage() {
               </p>
 
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <Button disabled>Unggah File</Button>
+                {/* [3] GANTI JUGA tombol di tengah ini agar konsisten */}
+                <UploadDialog /> 
                 <Button variant="outline" disabled>
                   Pelajari Cara Kerja
                 </Button>
               </div>
 
               <p className="mt-3 text-xs text-muted-foreground">
-                (Fitur upload akan diaktifkan pada batch berikutnya)
+                (Sistem upload menggunakan Direct-to-Storage untuk efisiensi biaya)
               </p>
             </div>
           </div>
