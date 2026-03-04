@@ -1,7 +1,13 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import * as React from "react";
 import { toast } from "sonner";
@@ -13,6 +19,12 @@ type InitResponse = {
   mime_type: string;
   size_bytes: number;
 };
+
+function getErrorMessage(err: unknown) {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "Terjadi kesalahan";
+}
 
 export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
   const [open, setOpen] = React.useState(false);
@@ -48,11 +60,9 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
 
       // 2) direct upload to storage
       const supabase = createSupabaseBrowserClient();
-
       abortRef.current = new AbortController();
 
-      // Supabase upload doesn't expose native progress.
-      // For MVP: show "indeterminate" progress then set 100% on completion.
+      // MVP: no progress from SDK, simulate
       setProgress(20);
 
       const { error: upErr } = await supabase.storage
@@ -82,8 +92,8 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
       setFile(null);
       setOpen(false);
       onUploaded?.();
-    } catch (err: any) {
-      toast.error(err?.message ?? "Upload gagal");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err) ?? "Upload gagal");
     } finally {
       setIsUploading(false);
       abortRef.current = null;
@@ -133,7 +143,11 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
           ) : null}
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={isUploading}>
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={isUploading}
+            >
               Tutup
             </Button>
             <Button onClick={handleUpload} disabled={!file || isUploading}>
