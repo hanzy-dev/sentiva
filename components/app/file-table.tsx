@@ -53,6 +53,27 @@ export function FileTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
+  async function handleShare(id: string) {
+    try {
+      setBusyId(id);
+      const res = await fetch(`/api/files/${id}/share-links`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expires_in_minutes: 60 * 24, max_views: 1 }),
+      });
+
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error?.message ?? "Gagal membuat tautan");
+
+      await navigator.clipboard.writeText(j.share_url);
+      toast.success("Tautan dibuat & disalin ke clipboard");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Gagal membuat tautan");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleDownload(id: string) {
     try {
       setBusyId(id);
@@ -62,7 +83,6 @@ export function FileTable({
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal download");
 
-      // redirect to signed url
       window.location.href = j.url;
     } catch (err: any) {
       toast.error(err?.message ?? "Gagal download");
@@ -100,8 +120,8 @@ export function FileTable({
       <div className="grid grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
         <div className="col-span-6">Nama</div>
         <div className="col-span-3 hidden sm:block">Tipe</div>
-        <div className="col-span-2 text-right">Ukuran</div>
-        <div className="col-span-1 text-right">Aksi</div>
+        <div className="col-span-1 text-right">Ukuran</div>
+        <div className="col-span-2 text-right">Aksi</div>
       </div>
 
       <Separator />
@@ -126,11 +146,20 @@ export function FileTable({
                 {f.mime_type}
               </div>
 
-              <div className="col-span-2 text-right text-muted-foreground">
+              <div className="col-span-1 text-right text-muted-foreground">
                 {formatBytes(f.size_bytes)}
               </div>
 
-              <div className="col-span-1 flex justify-end gap-2">
+              <div className="col-span-2 flex justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleShare(f.id)}
+                  disabled={busyId === f.id}
+                >
+                  Bagikan
+                </Button>
+
                 <Button
                   size="sm"
                   variant="outline"
@@ -139,6 +168,7 @@ export function FileTable({
                 >
                   Unduh
                 </Button>
+
                 <Button
                   size="sm"
                   variant="destructive"
