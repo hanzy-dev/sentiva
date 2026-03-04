@@ -27,10 +27,10 @@ export default function HomePage() {
 
           <div className="flex flex-wrap gap-3">
             <Button asChild>
-              <Link href="/(dashboard)">Buka Vault</Link>
+              <Link href="/vault">Buka Vault</Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link href="/(auth)/login">Masuk</Link>
+              <Link href="/login">Masuk</Link>
             </Button>
           </div>
 
