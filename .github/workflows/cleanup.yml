@@ -1,0 +1,29 @@
+name: Cleanup (Sentiva)
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # tiap hari jam 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call cleanup endpoint
+        env:
+          CLEANUP_URL: ${{ secrets.CLEANUP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CLEANUP_URL" ]; then
+            echo "CLEANUP_URL secret is missing"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is missing"
+            exit 1
+          fi
+
+          curl -sS -X POST "$CLEANUP_URL" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            -H "content-type: application/json" \
+            --fail
