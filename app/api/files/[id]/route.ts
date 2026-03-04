@@ -18,29 +18,18 @@ export async function DELETE(
 
   const fileId = params.id;
 
-  // soft delete
-  const { data: updated, error } = await supabase
-    .from("files")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", fileId)
-    .is("deleted_at", null)
-    .select("id")
-    .single();
+  const { error } = await supabase.rpc("soft_delete_file", {
+    p_file_id: fileId,
+  });
 
-  if (error || !updated) {
-    logger.error({ correlation_id: correlationId, err: error }, "delete failed");
+  if (error) {
+    logger.warn(
+      { correlation_id: correlationId, err: error },
+      "soft_delete_file rpc failed"
+    );
     return jsonError("NOT_FOUND", "File tidak ditemukan atau sudah dihapus.", 404);
   }
 
-  // best-effort audit
-  await supabase.from("audit_logs").insert({
-    actor_id: userData.user.id,
-    action: "DELETE",
-    target_type: "FILE",
-    target_id: updated.id,
-    request_id: correlationId,
-    metadata_json: {},
-  });
-
+  // Audit sudah ditangani di RPC (transactional)
   return Response.json({ ok: true });
 }
