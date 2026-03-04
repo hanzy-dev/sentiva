@@ -1,8 +1,13 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
+import { signInWithGoogle } from "./actions";
 
-export default function LoginPage() {
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams?: { error?: string };
+}) {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4">
       <Card className="w-full max-w-md">
@@ -10,9 +15,15 @@ export default function LoginPage() {
           <CardTitle>Masuk ke Sentiva</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button className="w-full" disabled>
-            Lanjut dengan Google (segera)
-          </Button>
+          {searchParams?.error ? (
+            <p className="text-sm text-destructive">{searchParams.error}</p>
+          ) : null}
+
+          <form action={signInWithGoogle}>
+            <Button className="w-full" type="submit">
+              Lanjut dengan Google
+            </Button>
+          </form>
 
           <p className="text-xs text-muted-foreground">
             Dengan melanjutkan, kamu menyetujui ketentuan penggunaan.
@@ -20,7 +31,7 @@ export default function LoginPage() {
 
           <Link
             className="block text-xs text-muted-foreground underline"
-            href="/(dashboard)"
+            href="/vault"
           >
             Lewati (mode dev)
           </Link>
