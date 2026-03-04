@@ -1,33 +1,76 @@
+import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import Link from "next/link";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 
-export default function HomePage() {
+export default function DashboardPage() {
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-center px-4">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="text-2xl">Sentiva</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            Vault file privat dengan unggah langsung ke storage (hemat server),
-            unduhan via signed URL, serta tautan berbagi yang bisa kedaluwarsa
-            dan sekali pakai.
-          </p>
+    <div className="space-y-6">
+      <PageHeader
+        title="Vault Saya"
+        description="Kelola file privat kamu. Unggah cepat, unduh aman, dan bagikan tautan sekali pakai."
+        action={<Button disabled>Unggah File</Button>}
+      />
 
-          <div className="flex flex-wrap gap-3">
-            <Button asChild>
-              <Link href="/(dashboard)">Buka Vault</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/(auth)/login">Masuk</Link>
-            </Button>
+      <Card>
+        <CardHeader className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="text-sm font-medium">Daftar File</div>
+              <div className="text-xs text-muted-foreground">
+                Cari file, lihat detail, atau buat tautan berbagi.
+              </div>
+            </div>
+
+            <div className="flex w-full gap-2 sm:w-auto">
+              <Input
+                placeholder="Cari nama file…"
+                className="h-9 w-full sm:w-[260px]"
+                disabled
+              />
+              <Button variant="outline" className="h-9" disabled>
+                Filter
+              </Button>
+            </div>
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            Catatan: Ini masih tahap awal. Fitur akan diaktifkan bertahap.
-          </p>
+          <Separator />
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {/* Table header */}
+          <div className="rounded-lg border">
+            <div className="grid grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
+              <div className="col-span-5">Nama</div>
+              <div className="col-span-2 hidden sm:block">Tipe</div>
+              <div className="col-span-2 hidden sm:block">Ukuran</div>
+              <div className="col-span-3 text-right">Aksi</div>
+            </div>
+
+            <Separator />
+
+            {/* Empty state */}
+            <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+              <div className="text-sm font-medium">Belum ada file</div>
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                Mulai dengan mengunggah file pertama kamu. Nantinya kamu bisa
+                mengunduh via signed URL dan membuat tautan berbagi yang bisa
+                kedaluwarsa atau sekali pakai.
+              </p>
+
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button disabled>Unggah File</Button>
+                <Button variant="outline" disabled>
+                  Pelajari Cara Kerja
+                </Button>
+              </div>
+
+              <p className="mt-3 text-xs text-muted-foreground">
+                (Fitur upload akan diaktifkan pada batch berikutnya)
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
