@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/http/errors";
+import { logger } from "@/lib/logging/logger"; // Import logger ditambahkan
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET() {
@@ -17,7 +18,9 @@ export async function GET() {
     .limit(50);
 
   if (error) {
-    return jsonError("INTERNAL_ERROR", "Gagal mengambil data file.", 500);
+    // Menambahkan logging untuk mempermudah debugging jika query gagal
+    logger.error({ err: error }, "list files failed"); 
+    return jsonError("INTERNAL_ERROR", error.message, 500);
   }
 
   return Response.json({ files: data ?? [] });
