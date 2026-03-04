@@ -20,8 +20,8 @@ export default function LoginPage({
           ) : null}
 
           <form action={signInWithGoogle}>
-            <Button className="w-full" type="submit">
-              Lanjut dengan Google
+            <Button className="w-full" asChild>
+              <Link href="/auth/start">Lanjut dengan Google</Link>
             </Button>
           </form>
 
