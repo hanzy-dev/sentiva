@@ -1,7 +1,8 @@
 import type { NextResponse } from "next/server";
 
 export function applySecurityHeaders(res: NextResponse) {
-  // Minimal CSP (allow self, allow inline styles for tailwind, allow images from self + data)
+  const isDev = process.env.NODE_ENV !== "production";
+
   const csp = [
     "default-src 'self'",
     "base-uri 'self'",
@@ -9,8 +10,10 @@ export function applySecurityHeaders(res: NextResponse) {
     "frame-ancestors 'none'",
     "img-src 'self' data: blob:",
     "style-src 'self' 'unsafe-inline'",
-    "script-src 'self'",
-    "connect-src 'self' https:",
+    isDev
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+      : "script-src 'self'",
+    "connect-src 'self' https: ws: wss:",
   ].join("; ");
 
   res.headers.set("Content-Security-Policy", csp);
@@ -21,7 +24,6 @@ export function applySecurityHeaders(res: NextResponse) {
     "camera=(), microphone=(), geolocation=()"
   );
 
-  // Only enable HSTS in production (requires HTTPS)
   if (process.env.NODE_ENV === "production") {
     res.headers.set(
       "Strict-Transport-Security",
