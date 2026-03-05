@@ -26,12 +26,21 @@ function getErrorMessage(err: unknown) {
   return "Terjadi kesalahan";
 }
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
 export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
   const [isUploading, setIsUploading] = React.useState(false);
   const [progress, setProgress] = React.useState<number>(0);
-  const abortRef = React.useRef<AbortController | null>(null);
+
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   async function handleUpload() {
     if (!file) return;
@@ -40,7 +49,6 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
     setProgress(0);
 
     try {
-      // 1) init
       const initRes = await fetch("/api/uploads/init", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -58,11 +66,9 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
 
       const init: InitResponse = await initRes.json();
 
-      // 2) direct upload to storage
       const supabase = createSupabaseBrowserClient();
-      abortRef.current = new AbortController();
 
-      // MVP: no progress from SDK, simulate
+      // Supabase SDK upload tidak expose progress; simulasikan agar UX terasa hidup.
       setProgress(20);
 
       const { error: upErr } = await supabase.storage
@@ -75,7 +81,6 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
       if (upErr) throw upErr;
       setProgress(80);
 
-      // 3) commit
       const commitRes = await fetch("/api/uploads/commit", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -89,6 +94,7 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
 
       setProgress(100);
       toast.success("Upload berhasil");
+
       setFile(null);
       setOpen(false);
       onUploaded?.();
@@ -96,19 +102,39 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
       toast.error(getErrorMessage(err) ?? "Upload gagal");
     } finally {
       setIsUploading(false);
-      abortRef.current = null;
     }
   }
 
-  function handleCancel() {
-    toast.message("Upload dibatalkan");
-    setIsUploading(false);
+  function reset() {
     setProgress(0);
     setFile(null);
   }
 
+  function onPickFile() {
+    inputRef.current?.click();
+  }
+
+  function onFileSelected(f: File | null) {
+    if (!f) return;
+    setFile(f);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    if (isUploading) return;
+    const f = e.dataTransfer.files?.[0] ?? null;
+    onFileSelected(f);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !isUploading && setOpen(v)}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (isUploading) return;
+        setOpen(v);
+        if (!v) reset();
+      }}
+    >
       <DialogTrigger asChild>
         <Button>Unggah File</Button>
       </DialogTrigger>
@@ -119,11 +145,43 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Hidden native input */}
           <input
+            ref={inputRef}
             type="file"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="hidden"
+            onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
             disabled={isUploading}
           />
+
+          {/* Dropzone / Picker */}
+          <button
+            type="button"
+            onClick={onPickFile}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+            disabled={isUploading}
+            className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-background px-4 py-8 text-left transition hover:bg-muted/40 disabled:opacity-60"
+          >
+            <div className="text-2xl">📁</div>
+            <div className="text-sm font-semibold">
+              Klik untuk memilih file{" "}
+              <span className="font-normal text-muted-foreground">
+                atau seret file ke sini
+              </span>
+            </div>
+
+            {file ? (
+              <div className="mt-1 text-xs text-muted-foreground">
+                Dipilih: <span className="font-medium">{file.name}</span> •{" "}
+                {formatBytes(file.size)}
+              </div>
+            ) : (
+              <div className="mt-1 text-xs text-muted-foreground">
+                Maksimal sesuai limit storage project kamu.
+              </div>
+            )}
+          </button>
 
           {isUploading ? (
             <div className="space-y-2">
@@ -133,11 +191,10 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
                   style={{ width: `${progress}%` }}
                 />
               </div>
+
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{progress}%</span>
-                <button className="underline" onClick={handleCancel} type="button">
-                  Batalkan
-                </button>
+                <span>Sedang mengunggah…</span>
               </div>
             </div>
           ) : null}
@@ -150,6 +207,7 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
             >
               Tutup
             </Button>
+
             <Button onClick={handleUpload} disabled={!file || isUploading}>
               Upload
             </Button>
