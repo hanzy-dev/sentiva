@@ -1,7 +1,17 @@
 "use client";
 
+import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { ShareDialog } from "@/components/app/share-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import { Download, MoreHorizontal, Share2, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -43,9 +53,8 @@ function humanFileType(mime: string) {
 }
 
 function displayName(name: string) {
-  // Heuristic: kalau nama diawali UUID + "-" (36 chars uuid)
-  // contoh: 864f32d8-fa54-4df3-8f0f-496fe8f18a3f-Hello.docx
-  const uuidPrefix = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i;
+  const uuidPrefix =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i;
   return name.replace(uuidPrefix, "");
 }
 
@@ -62,8 +71,8 @@ function SkeletonRow() {
         <div className="ml-auto h-4 w-12 animate-pulse rounded bg-muted" />
       </div>
       <div className="col-span-2 flex justify-end gap-2">
-        <div className="h-8 w-20 animate-pulse rounded bg-muted" />
-        <div className="h-8 w-20 animate-pulse rounded bg-muted" />
+        <div className="h-8 w-24 animate-pulse rounded bg-muted" />
+        <div className="h-8 w-10 animate-pulse rounded bg-muted" />
       </div>
     </div>
   );
@@ -81,6 +90,12 @@ export function FileTable({
   const [files, setFiles] = React.useState<FileRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busyId, setBusyId] = React.useState<string | null>(null);
+
+  const [shareOpen, setShareOpen] = React.useState(false);
+  const [shareUrl, setShareUrl] = React.useState<string | null>(null);
+
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [pendingDelete, setPendingDelete] = React.useState<{ id: string; name: string } | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -105,6 +120,7 @@ export function FileTable({
   async function handleShare(id: string) {
     try {
       setBusyId(id);
+
       const res = await fetch(`/api/files/${id}/share-links`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -114,8 +130,16 @@ export function FileTable({
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal membuat tautan");
 
-      await navigator.clipboard.writeText(j.share_url);
-      toast.success("Tautan dibuat & disalin ke clipboard");
+      setShareUrl(j.share_url);
+      setShareOpen(true);
+
+      // auto copy (bonus) — modal tetap muncul sebagai UX premium
+      try {
+        await navigator.clipboard.writeText(j.share_url);
+        toast.success("Tautan dibuat & disalin");
+      } catch {
+        // ignore
+      }
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -140,18 +164,24 @@ export function FileTable({
     }
   }
 
-  async function handleDelete(id: string) {
-    // Batch 4 nanti ganti jadi shadcn dialog confirm.
-    const ok = confirm("Hapus file ini? (soft delete)");
-    if (!ok) return;
+  function askDelete(id: string, name: string) {
+    setPendingDelete({ id, name });
+    setConfirmOpen(true);
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
 
     try {
-      setBusyId(id);
-      const res = await fetch(`/api/files/${id}`, { method: "DELETE" });
+      setBusyId(pendingDelete.id);
+      const res = await fetch(`/api/files/${pendingDelete.id}`, { method: "DELETE" });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal hapus file");
 
       toast.success("File dipindahkan ke sampah");
+      setConfirmOpen(false);
+      setPendingDelete(null);
+
       await load();
       onChanged?.();
     } catch (err: unknown) {
@@ -162,92 +192,130 @@ export function FileTable({
   }
 
   return (
-    <div className="rounded-xl border bg-background shadow-sm">
-      <div className="grid grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
-        <div className="col-span-6">Nama</div>
-        <div className="col-span-3 hidden sm:block">Tipe</div>
-        <div className="col-span-1 text-right">Ukuran</div>
-        <div className="col-span-2 text-right">Aksi</div>
+    <>
+      <div className="rounded-xl border bg-background shadow-sm">
+        <div className="grid grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
+          <div className="col-span-6">Nama</div>
+          <div className="col-span-3 hidden sm:block">Tipe</div>
+          <div className="col-span-1 text-right">Ukuran</div>
+          <div className="col-span-2 text-right">Aksi</div>
+        </div>
+
+        <Separator />
+
+        {loading ? (
+          <div className="divide-y">
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </div>
+        ) : files.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border bg-background shadow-sm">
+              <span className="text-lg">⬆️</span>
+            </div>
+            <div className="text-sm font-semibold">Belum ada file</div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Unggah file pertama kamu untuk mulai. Kamu bisa unduh aman dan buat
+              tautan sekali pakai.
+            </p>
+
+            <div className="mt-4 flex justify-center">
+              <Button onClick={onRequestUpload}>Unggah Sekarang</Button>
+            </div>
+
+            <p className="mt-3 text-xs text-muted-foreground">
+              Upload menggunakan Direct-to-Storage untuk efisiensi biaya.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {files.map((f) => (
+              <div
+                key={f.id}
+                className="grid grid-cols-12 items-center gap-3 px-4 py-3 text-sm"
+              >
+                <div className="col-span-6 truncate font-medium">
+                  {displayName(f.original_name)}
+                </div>
+
+                <div className="col-span-3 hidden sm:block truncate text-muted-foreground">
+                  {humanFileType(f.mime_type)}
+                </div>
+
+                <div className="col-span-1 text-right text-muted-foreground">
+                  {formatBytes(f.size_bytes)}
+                </div>
+
+                <div className="col-span-2 flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleDownload(f.id)}
+                    disabled={busyId === f.id}
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Unduh
+                  </Button>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="outline" disabled={busyId === f.id}>
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+
+                    <DropdownMenuContent align="end" className="min-w-[200px]">
+                      <DropdownMenuItem onClick={() => handleShare(f.id)} className="gap-2">
+                        <Share2 className="h-4 w-4" />
+                        Bagikan (24 jam • sekali pakai)
+                      </DropdownMenuItem>
+
+                      <DropdownMenuSeparator />
+
+                      <DropdownMenuItem
+                        onClick={() => askDelete(f.id, displayName(f.original_name))}
+                        className="gap-2 text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Hapus
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      <Separator />
+      <ShareDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        shareUrl={shareUrl}
+        expiresLabel="berlaku 24 jam"
+        usageLabel="sekali pakai"
+      />
 
-      {loading ? (
-        <div className="divide-y">
-          <SkeletonRow />
-          <SkeletonRow />
-          <SkeletonRow />
-        </div>
-      ) : files.length === 0 ? (
-        <div className="px-6 py-12 text-center">
-          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border bg-background shadow-sm">
-            <span className="text-lg">⬆️</span>
-          </div>
-          <div className="text-sm font-semibold">Belum ada file</div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Unggah file pertama kamu untuk mulai. Kamu bisa unduh aman dan buat
-            tautan sekali pakai.
-          </p>
-
-          <div className="mt-4 flex justify-center">
-            <Button onClick={onRequestUpload}>Unggah Sekarang</Button>
-          </div>
-
-          <p className="mt-3 text-xs text-muted-foreground">
-            Upload menggunakan Direct-to-Storage untuk efisiensi biaya.
-          </p>
-        </div>
-      ) : (
-        <div className="divide-y">
-          {files.map((f) => (
-            <div
-              key={f.id}
-              className="grid grid-cols-12 items-center gap-3 px-4 py-3 text-sm"
-            >
-              <div className="col-span-6 truncate font-medium">
-                {displayName(f.original_name)}
-              </div>
-
-              <div className="col-span-3 hidden sm:block truncate text-muted-foreground">
-                {humanFileType(f.mime_type)}
-              </div>
-
-              <div className="col-span-1 text-right text-muted-foreground">
-                {formatBytes(f.size_bytes)}
-              </div>
-
-              <div className="col-span-2 flex justify-end gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleShare(f.id)}
-                  disabled={busyId === f.id}
-                >
-                  Bagikan
-                </Button>
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleDownload(f.id)}
-                  disabled={busyId === f.id}
-                >
-                  Unduh
-                </Button>
-
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => handleDelete(f.id)}
-                  disabled={busyId === f.id}
-                >
-                  Hapus
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(v) => {
+          setConfirmOpen(v);
+          if (!v) setPendingDelete(null);
+        }}
+        title="Hapus file?"
+        description={
+          pendingDelete
+            ? `File "${pendingDelete.name}" akan dipindahkan ke sampah (soft delete).`
+            : undefined
+        }
+        confirmText="Hapus"
+        cancelText="Batal"
+        destructive
+        loading={pendingDelete ? busyId === pendingDelete.id : false}
+        onConfirm={confirmDelete}
+      />
+    </>
   );
 }
