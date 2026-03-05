@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   if (limiter) {
     const { success } = await limiter.limit(userData.user.id);
     if (!success) {
-      return jsonError("TOO_MANY_REQUESTS", "Terlalu banyak permintaan.", 429);
+      return jsonError("RATE_LIMITED", "Terlalu banyak permintaan.", 429);
     }
   }
 

@@ -37,7 +37,7 @@ export async function POST(
         { correlation_id: correlationId, user_id: userData.user.id },
         "share create rate limited"
       );
-      return jsonError("TOO_MANY_REQUESTS", "Terlalu banyak permintaan.", 429);
+      return jsonError("RATE_LIMITED", "Terlalu banyak permintaan.", 429);
     }
   }
 
