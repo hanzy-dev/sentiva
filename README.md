@@ -1,18 +1,21 @@
 # Sentiva — Secure File Vault (Next.js + Supabase)
 
-**Sentiva** adalah *private file vault* untuk menyimpan dan berbagi file secara aman.  
-Dirancang dengan standar industri: **direct-to-storage upload (LFA)**, **signed URL**, **one-time / expiring share link (atomic)**, **RLS**, **security headers**, **observability (correlation id + structured logs)**, dan **cleanup job** untuk mencegah *cloud shock*.
+[![Cleanup (Sentiva)](https://github.com/hanzy-dev/sentiva/actions/workflows/cleanup.yml/badge.svg)](https://github.com/hanzy-dev/sentiva/actions/workflows/cleanup.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
 
-🌐 Demo: https://sentiva.vercel.app
+**Sentiva** adalah *private file vault* untuk menyimpan dan berbagi file secara aman.  
+Dibangun dengan standar industri: **direct-to-storage upload (LFA)**, **signed URL**, **one-time / expiring share link (atomic)**, **RLS**, **security headers**, **observability (correlation id + structured logs)**, dan **cleanup job** untuk mencegah *cloud shock*.
+
+🌐 **Demo:** https://sentiva.vercel.app
 
 ---
 
 ## Kenapa project ini “bernilai tinggi”
-- **Large File Upload (LFA)**: upload langsung ke Supabase Storage (hemat memory/CPU server, cocok untuk serverless).
-- **Security by default**: private bucket + RLS + signed URL TTL pendek + token share disimpan sebagai hash.
-- **Atomic share link**: konsumsi link one-time menggunakan query atomik untuk mencegah race condition.
-- **Cost control**: cleanup endpoint + GitHub Actions cron untuk menghapus file yang sudah soft-delete.
-- **Operasional siap produksi**: health endpoint, correlation id, structured logs.
+- **Large File Upload (LFA):** upload langsung ke Supabase Storage → hemat memory/CPU server (cocok untuk serverless).
+- **Security by default:** private bucket + RLS + signed URL TTL pendek + token share disimpan sebagai hash.
+- **Atomic share link:** konsumsi one-time link secara atomik untuk mencegah race condition.
+- **Cost control:** cleanup endpoint + GitHub Actions cron untuk menghapus file yang sudah soft-delete.
+- **Operasional siap produksi:** health endpoint, correlation id, structured logs, dan error handling konsisten.
 
 ---
 
@@ -24,10 +27,10 @@ Dirancang dengan standar industri: **direct-to-storage upload (LFA)**, **signed 
 - Download aman (signed URL)
 - Hapus file (soft delete)
 - Buat share link (expiring + one-time)
-- Consume share link publik (`/s/:token`)
+- Consume share link publik: `/s/:token`
 
 ### Ops / Production readiness
-- `/api/health` (status layanan)
+- `GET /api/health` (status layanan)
 - Middleware: correlation id + latency log + security headers
 - Cleanup job via GitHub Actions (cron)
 
@@ -61,12 +64,11 @@ Dirancang dengan standar industri: **direct-to-storage upload (LFA)**, **signed 
 ---
 
 ## Security Model
-- **Supabase RLS**: user hanya bisa akses data miliknya (`files`, `share_links`, `audit_logs`)
-- **Private storage bucket** + signed URL (TTL pendek)
-- **Token safety**: share token tidak disimpan plaintext (hash)
-- **Input validation**: Zod schema untuk payload API
-- **Security headers**: CSP, nosniff, referrer policy, dll
-- **Rate limiting**: (catatan) bisa ditambah (Upstash/edge middleware) jika ingin production scale
+- **Supabase RLS:** user hanya bisa akses data miliknya (`files`, `share_links`, `audit_logs`)
+- **Private storage bucket** + signed URL TTL pendek
+- **Token safety:** share token tidak disimpan plaintext (hash)
+- **Input validation:** Zod schema untuk payload API
+- **Security headers:** CSP, nosniff, referrer policy, dll
 
 ---
 
@@ -86,11 +88,12 @@ Dirancang dengan standar industri: **direct-to-storage upload (LFA)**, **signed 
 - Supabase (Auth, Postgres, Storage, RLS)
 - shadcn/ui + Tailwind CSS
 - Pino (structured logging)
-- GitHub Actions (cron cleanup)
+- GitHub Actions (scheduled cleanup)
 
 ---
 
 ## Setup Lokal
+
 ### 1) Install
 
 ```bash
@@ -98,6 +101,9 @@ npm install
 ```
 
 ### 2) Buat .env.local
+
+Gunakan template .env.example, lalu isi value:
+
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
@@ -105,7 +111,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 CRON_SECRET=
 ```
 
-3) Jalankan
+### 3) Jalankan
 
 ```
 npm run dev
@@ -126,10 +132,14 @@ npx supabase@latest db push
 
 ## CI / Automation
 
-- leanup workflow: .github/workflows/cleanup.yml
-- Secrets yang dibutuhkan:
-  - CLEANUP_URL
-  - CRON_SECRET
+Workflow:
+
+- `.github/workflows/cleanup.yml`
+
+Secrets yang dibutuhkan:
+
+- `CLEANUP_URL`
+- `CRON_SECRET`
 
 ## Trade-offs (Why)
 
