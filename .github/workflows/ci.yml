@@ -1,0 +1,47 @@
+name: CI (Sentiva)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        env:
+          # Dummy env untuk ngehindarin build fail kalau ada code yang butuh env saat build-time.
+          NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "dummy"
+          SUPABASE_SERVICE_ROLE_KEY: "dummy"
+          CRON_SECRET: "dummy"
+        run: npm run build
