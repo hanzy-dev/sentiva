@@ -34,6 +34,40 @@ function formatBytes(bytes: number) {
   return `${mb.toFixed(1)} MB`;
 }
 
+function guessMimeType(file: File): string {
+  const name = (file.name || "").toLowerCase();
+
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".gif")) return "image/gif";
+  if (name.endsWith(".svg")) return "image/svg+xml";
+
+  if (name.endsWith(".txt")) return "text/plain";
+
+  if (name.endsWith(".mp4")) return "video/mp4";
+  if (name.endsWith(".webm")) return "video/webm";
+  if (name.endsWith(".mov")) return "video/quicktime";
+  if (name.endsWith(".avi")) return "video/x-msvideo";
+
+  if (name.endsWith(".mp3")) return "audio/mpeg";
+  if (name.endsWith(".wav")) return "audio/wav";
+  if (name.endsWith(".ogg")) return "audio/ogg";
+
+  if (name.endsWith(".doc")) return "application/msword";
+  if (name.endsWith(".docx"))
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (name.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (name.endsWith(".xlsx"))
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (name.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+  if (name.endsWith(".pptx"))
+    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+  return "application/octet-stream";
+}
+
 export function UploadDialog({
   onUploaded,
   open: controlledOpen,
@@ -81,12 +115,14 @@ export function UploadDialog({
     setProgress(0);
 
     try {
+      const mime_type = file.type || guessMimeType(file);
+
       const initRes = await fetch("/api/uploads/init", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           original_name: file.name,
-          mime_type: file.type || "application/octet-stream",
+          mime_type,
           size_bytes: file.size,
         }),
       });
@@ -105,8 +141,9 @@ export function UploadDialog({
       const { error: upErr } = await supabase.storage
         .from(init.bucket)
         .upload(init.object_path, file, {
-          contentType: init.mime_type,
+          contentType: init.mime_type || mime_type,
           upsert: false,
+          cacheControl: "3600",
         });
 
       if (upErr) throw upErr;
@@ -145,7 +182,6 @@ export function UploadDialog({
         if (!v) reset();
       }}
     >
-      {/* Trigger hanya muncul kalau component dipakai tanpa controlled */}
       {controlledOpen === undefined ? (
         <DialogTrigger asChild>
           <Button>Unggah File</Button>

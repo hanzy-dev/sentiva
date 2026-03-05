@@ -1,6 +1,7 @@
 "use client";
 
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { PreviewDialog, usePreviewDialog } from "@/components/app/preview-dialog";
 import { ShareDialog } from "@/components/app/share-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Download, MoreHorizontal, Share2, Trash2 } from "lucide-react";
+import { Download, Eye, MoreHorizontal, Share2, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -97,6 +98,8 @@ export function FileTable({
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pendingDelete, setPendingDelete] = React.useState<{ id: string; name: string } | null>(null);
 
+  const preview = usePreviewDialog();
+
   const load = React.useCallback(async () => {
     setLoading(true);
     const res = await fetch("/api/files");
@@ -133,7 +136,6 @@ export function FileTable({
       setShareUrl(j.share_url);
       setShareOpen(true);
 
-      // auto copy (bonus) — modal tetap muncul sebagai UX premium
       try {
         await navigator.clipboard.writeText(j.share_url);
         toast.success("Tautan dibuat & disalin");
@@ -162,6 +164,10 @@ export function FileTable({
     } finally {
       setBusyId(null);
     }
+  }
+
+  function handlePreview(id: string, name: string) {
+    preview.open(id, name);
   }
 
   function askDelete(id: string, name: string) {
@@ -230,76 +236,90 @@ export function FileTable({
           </div>
         ) : (
           <div className="divide-y">
-            {files.map((f) => (
-              <div
-                key={f.id}
-                className="grid grid-cols-12 items-center gap-3 px-4 py-3 text-sm"
-              >
-                <div className="col-span-6 truncate font-medium">
-                  {displayName(f.original_name)}
+            {files.map((f) => {
+              const name = displayName(f.original_name);
+              return (
+                <div
+                  key={f.id}
+                  className="grid grid-cols-12 items-center gap-3 px-4 py-3 text-sm"
+                >
+                  <div className="col-span-6 truncate font-medium">{name}</div>
+
+                  <div className="col-span-3 hidden sm:block truncate text-muted-foreground">
+                    {humanFileType(f.mime_type)}
+                  </div>
+
+                  <div className="col-span-1 text-right text-muted-foreground">
+                    {formatBytes(f.size_bytes)}
+                  </div>
+
+                  <div className="col-span-2 flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleDownload(f.id)}
+                      disabled={busyId === f.id}
+                      className="gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      Unduh
+                    </Button>
+
+                    <DropdownMenu modal={false}>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === f.id}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+
+                      <DropdownMenuContent align="end" className="min-w-[220px]">
+                        <DropdownMenuItem
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            handlePreview(f.id, name);
+                          }}
+                          className="gap-2"
+                        >
+                          <Eye className="h-4 w-4" />
+                          Preview
+                        </DropdownMenuItem>
+
+                        <DropdownMenuSeparator />
+
+                        <DropdownMenuItem
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            handleShare(f.id);
+                          }}
+                          className="gap-2"
+                        >
+                          <Share2 className="h-4 w-4" />
+                          Bagikan (24 jam • sekali pakai)
+                        </DropdownMenuItem>
+
+                        <DropdownMenuSeparator />
+
+                        <DropdownMenuItem
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            askDelete(f.id, name);
+                          }}
+                          className="gap-2 text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Hapus
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-
-                <div className="col-span-3 hidden sm:block truncate text-muted-foreground">
-                  {humanFileType(f.mime_type)}
-                </div>
-
-                <div className="col-span-1 text-right text-muted-foreground">
-                  {formatBytes(f.size_bytes)}
-                </div>
-
-                <div className="col-span-2 flex justify-end gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleDownload(f.id)}
-                    disabled={busyId === f.id}
-                    className="gap-2"
-                  >
-                    <Download className="h-4 w-4" />
-                    Unduh
-                  </Button>
-
-                  <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busyId === f.id}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-
-                    <DropdownMenuContent align="end" className="min-w-[200px]">
-                      <DropdownMenuItem
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          handleShare(f.id);
-                        }}
-                        className="gap-2"
-                      >
-                        <Share2 className="h-4 w-4" />
-                        Bagikan (24 jam • sekali pakai)
-                      </DropdownMenuItem>
-
-                      <DropdownMenuSeparator />
-
-                      <DropdownMenuItem
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          askDelete(f.id, displayName(f.original_name));
-                        }}
-                        className="gap-2 text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Hapus
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -330,6 +350,8 @@ export function FileTable({
         loading={pendingDelete ? busyId === pendingDelete.id : false}
         onConfirm={confirmDelete}
       />
+
+      <PreviewDialog state={preview.state} onClose={preview.close} />
     </>
   );
 }

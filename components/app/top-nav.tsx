@@ -53,6 +53,12 @@ export function TopNav({ userEmail }: { userEmail?: string | null }) {
 
             <DropdownMenuSeparator />
 
+            <DropdownMenuItem asChild>
+              <Link href="/vault/audit">Audit Log</Link>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
             <DropdownMenuItem disabled>Profil (segera)</DropdownMenuItem>
             <DropdownMenuItem disabled>Pengaturan (segera)</DropdownMenuItem>
 
