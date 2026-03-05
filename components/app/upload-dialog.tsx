@@ -34,13 +34,45 @@ function formatBytes(bytes: number) {
   return `${mb.toFixed(1)} MB`;
 }
 
-export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
-  const [open, setOpen] = React.useState(false);
+export function UploadDialog({
+  onUploaded,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+}: {
+  onUploaded?: () => void;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = controlledOnOpenChange ?? setUncontrolledOpen;
+
   const [file, setFile] = React.useState<File | null>(null);
   const [isUploading, setIsUploading] = React.useState(false);
   const [progress, setProgress] = React.useState<number>(0);
 
   const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  function reset() {
+    setProgress(0);
+    setFile(null);
+  }
+
+  function onPickFile() {
+    inputRef.current?.click();
+  }
+
+  function onFileSelected(f: File | null) {
+    if (!f) return;
+    setFile(f);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    if (isUploading) return;
+    const f = e.dataTransfer.files?.[0] ?? null;
+    onFileSelected(f);
+  }
 
   async function handleUpload() {
     if (!file) return;
@@ -68,7 +100,6 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
 
       const supabase = createSupabaseBrowserClient();
 
-      // Supabase SDK upload tidak expose progress; simulasikan agar UX terasa hidup.
       setProgress(20);
 
       const { error: upErr } = await supabase.storage
@@ -95,7 +126,7 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
       setProgress(100);
       toast.success("Upload berhasil");
 
-      setFile(null);
+      reset();
       setOpen(false);
       onUploaded?.();
     } catch (err: unknown) {
@@ -103,27 +134,6 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
     } finally {
       setIsUploading(false);
     }
-  }
-
-  function reset() {
-    setProgress(0);
-    setFile(null);
-  }
-
-  function onPickFile() {
-    inputRef.current?.click();
-  }
-
-  function onFileSelected(f: File | null) {
-    if (!f) return;
-    setFile(f);
-  }
-
-  function onDrop(e: React.DragEvent<HTMLButtonElement>) {
-    e.preventDefault();
-    if (isUploading) return;
-    const f = e.dataTransfer.files?.[0] ?? null;
-    onFileSelected(f);
   }
 
   return (
@@ -135,9 +145,12 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
         if (!v) reset();
       }}
     >
-      <DialogTrigger asChild>
-        <Button>Unggah File</Button>
-      </DialogTrigger>
+      {/* Trigger hanya muncul kalau component dipakai tanpa controlled */}
+      {controlledOpen === undefined ? (
+        <DialogTrigger asChild>
+          <Button>Unggah File</Button>
+        </DialogTrigger>
+      ) : null}
 
       <DialogContent>
         <DialogHeader>
@@ -145,7 +158,6 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Hidden native input */}
           <input
             ref={inputRef}
             type="file"
@@ -154,7 +166,6 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
             disabled={isUploading}
           />
 
-          {/* Dropzone / Picker */}
           <button
             type="button"
             onClick={onPickFile}
@@ -204,11 +215,12 @@ export function UploadDialog({ onUploaded }: { onUploaded?: () => void }) {
               variant="outline"
               onClick={() => setOpen(false)}
               disabled={isUploading}
+              type="button"
             >
               Tutup
             </Button>
 
-            <Button onClick={handleUpload} disabled={!file || isUploading}>
+            <Button onClick={handleUpload} disabled={!file || isUploading} type="button">
               Upload
             </Button>
           </div>

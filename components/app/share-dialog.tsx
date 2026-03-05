@@ -48,16 +48,16 @@ export function ShareDialog({
         <div className="space-y-2">
           <Input value={shareUrl ?? ""} readOnly />
           <p className="text-xs text-muted-foreground">
-            Tips: kirim tautan ini ke penerima. Setelah dipakai (atau kedaluwarsa),
+            Kirim tautan ini ke penerima. Setelah dipakai (atau kedaluwarsa),
             tautan tidak bisa digunakan lagi.
           </p>
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
             Tutup
           </Button>
-          <Button onClick={copy} disabled={!shareUrl}>
+          <Button onClick={copy} disabled={!shareUrl} type="button">
             Salin Tautan
           </Button>
         </DialogFooter>
