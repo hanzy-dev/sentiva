@@ -5,7 +5,10 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main className="min-h-[calc(100vh-4rem)]">
+    <main className="relative">
+      {/* subtle background accent */}
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(0,0,0,0.06),transparent_60%)]" />
+
       <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:py-16">
         <div className="space-y-12">
           {/* Hero */}
