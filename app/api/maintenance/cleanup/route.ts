@@ -6,6 +6,11 @@ function unauthorized() {
   return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 }
 
+function clampInt(n: number, min: number, max: number) {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
 export async function POST(request: Request) {
   const secret = request.headers.get("x-cron-secret");
   if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
@@ -15,13 +20,13 @@ export async function POST(request: Request) {
   const admin = createSupabaseAdminClient();
 
   const url = new URL(request.url);
-  const days = Number(url.searchParams.get("days") ?? "7");
-  const linksDays = Number(url.searchParams.get("links_days") ?? "30");
+  const days = clampInt(Number(url.searchParams.get("days") ?? "7"), 1, 90);
+  const linksDays = clampInt(Number(url.searchParams.get("links_days") ?? "30"), 1, 365);
 
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const linksCutoff = new Date(
-    Date.now() - linksDays * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const linksCutoff = new Date(Date.now() - linksDays * 24 * 60 * 60 * 1000).toISOString();
+
+  logger.info({ days, linksDays, cutoff, linksCutoff }, "cleanup start");
 
   // 1) Ambil file yang sudah deleted lama (untuk dihapus dari Storage)
   const { data: deletedFiles, error: qErr } = await admin
@@ -48,11 +53,10 @@ export async function POST(request: Request) {
   }
 
   for (const [bucket, paths] of byBucket.entries()) {
-    // Supabase storage remove supports array
     const { error: rmErr } = await admin.storage.from(bucket).remove(paths);
     if (rmErr) {
       logger.error({ err: rmErr, bucket }, "cleanup storage remove failed");
-      // continue (best-effort) supaya gak stuck
+      // best-effort: lanjut supaya gak stuck
     } else {
       storageDeleted += paths.length;
     }
@@ -61,10 +65,7 @@ export async function POST(request: Request) {
   // 3) Hard delete rows files yang sudah lewat cutoff (setelah object removed)
   if ((deletedFiles?.length ?? 0) > 0) {
     const ids = deletedFiles!.map((f) => f.id);
-    const { error: delErr } = await admin
-      .from("files")
-      .delete()
-      .in("id", ids);
+    const { error: delErr } = await admin.from("files").delete().in("id", ids);
 
     if (delErr) {
       logger.error({ err: delErr }, "cleanup db delete files failed");
@@ -85,8 +86,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, step: "delete_share_links" }, { status: 500 });
   }
 
+  logger.info(
+    {
+      storage_objects: storageDeleted,
+      files_rows: dbDeleted,
+      files_candidates: deletedFiles?.length ?? 0,
+    },
+    "cleanup done"
+  );
+
   return NextResponse.json({
     ok: true,
+    requested: { days, links_days: linksDays },
     cutoffs: { files_deleted_before: cutoff, links_before: linksCutoff },
     deleted: { storage_objects: storageDeleted, files_rows: dbDeleted },
   });
