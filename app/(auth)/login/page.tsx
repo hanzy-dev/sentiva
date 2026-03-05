@@ -4,7 +4,6 @@ import Link from "next/link";
 import { signInWithGoogle } from "./actions";
 
 function GoogleIcon() {
-  // Simple inline SVG, no external assets.
   return (
     <svg
       aria-hidden="true"
@@ -40,10 +39,9 @@ export default function LoginPage({
 }) {
   return (
     <div className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center overflow-hidden px-4 py-12">
-      {/* subtle background */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,0,0,0.06),transparent_60%)]" />
 
-      <Card className="relative w-full max-w-md shadow-lg">
+      <Card className="relative w-full max-w-md rounded-xl shadow-lg">
         <CardHeader className="space-y-2">
           <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border bg-background shadow-sm">
@@ -54,7 +52,8 @@ export default function LoginPage({
 
           <CardTitle className="text-2xl">Masuk ke Sentiva</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Gunakan akun Google untuk mengakses vault kamu.
+            Vault privat untuk unggah cepat, unduh aman, dan berbagi tautan sekali
+            pakai.
           </p>
         </CardHeader>
 
@@ -66,7 +65,6 @@ export default function LoginPage({
           ) : null}
 
           <form action={signInWithGoogle}>
-            {/* NOTE: action tetap, tapi link yang mengarah ke /auth/start */}
             <Button className="w-full gap-2" variant="outline" asChild>
               <Link href="/auth/start">
                 <GoogleIcon />
@@ -76,7 +74,8 @@ export default function LoginPage({
           </form>
 
           <p className="text-xs text-muted-foreground">
-            Dengan melanjutkan, kamu menyetujui ketentuan penggunaan.
+            OAuth dilakukan melalui Google & Supabase. Kami tidak menyimpan kata
+            sandi kamu.
           </p>
 
           <Link
