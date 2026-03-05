@@ -1,13 +1,20 @@
 import { jsonError } from "@/lib/http/errors";
 import { CORRELATION_ID_HEADER } from "@/lib/http/request-id";
 import { logger } from "@/lib/logging/logger";
+import { createRateLimiter } from "@/lib/security/rate-limit";
 import { generateShareToken, sha256 } from "@/lib/security/tokens";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
 const createShareSchema = z.object({
-  expires_in_minutes: z.number().int().positive().max(60 * 24 * 30).default(60 * 24), // max 30 hari
+  expires_in_minutes: z.number().int().positive().max(60 * 24 * 30).default(60 * 24),
   max_views: z.number().int().min(1).max(100).default(1),
+});
+
+const limiter = createRateLimiter({
+  prefix: "share-create",
+  requests: 10,
+  window: "60 s",
 });
 
 export async function POST(
@@ -23,6 +30,17 @@ export async function POST(
     return jsonError("UNAUTHORIZED", "Silakan login.", 401);
   }
 
+  if (limiter) {
+    const { success } = await limiter.limit(userData.user.id);
+    if (!success) {
+      logger.warn(
+        { correlation_id: correlationId, user_id: userData.user.id },
+        "share create rate limited"
+      );
+      return jsonError("TOO_MANY_REQUESTS", "Terlalu banyak permintaan.", 429);
+    }
+  }
+
   const body = await request.json().catch(() => ({}));
   const parsed = createShareSchema.safeParse(body);
   if (!parsed.success) {
@@ -33,7 +51,6 @@ export async function POST(
 
   const fileId = params.id;
 
-  // Ensure file exists & owned (RLS handles ownership)
   const { data: file, error: fileErr } = await supabase
     .from("files")
     .select("id")
@@ -78,7 +95,6 @@ export async function POST(
     metadata_json: { share_link_id: linkRow.id, max_views: linkRow.max_views, expires_at },
   });
 
-  // Build URL
   const origin = new URL(request.url).origin;
   const share_url = `${origin}/s/${token}`;
 
