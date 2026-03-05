@@ -259,15 +259,26 @@ export function FileTable({
                     Unduh
                   </Button>
 
-                  <DropdownMenu>
+                  <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="outline" disabled={busyId === f.id}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === f.id}
+                      >
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
 
                     <DropdownMenuContent align="end" className="min-w-[200px]">
-                      <DropdownMenuItem onClick={() => handleShare(f.id)} className="gap-2">
+                      <DropdownMenuItem
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          handleShare(f.id);
+                        }}
+                        className="gap-2"
+                      >
                         <Share2 className="h-4 w-4" />
                         Bagikan (24 jam • sekali pakai)
                       </DropdownMenuItem>
@@ -275,7 +286,10 @@ export function FileTable({
                       <DropdownMenuSeparator />
 
                       <DropdownMenuItem
-                        onClick={() => askDelete(f.id, displayName(f.original_name))}
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          askDelete(f.id, displayName(f.original_name));
+                        }}
                         className="gap-2 text-destructive focus:text-destructive"
                       >
                         <Trash2 className="h-4 w-4" />
