@@ -2,12 +2,12 @@
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -27,12 +27,19 @@ export function ShareDialog({
 }) {
   async function copy() {
     if (!shareUrl) return;
+
     try {
       await navigator.clipboard.writeText(shareUrl);
       toast.success("Tautan disalin ke clipboard");
     } catch {
       toast.error("Gagal menyalin tautan");
     }
+  }
+
+  function openLink() {
+    if (!shareUrl) return;
+    window.open(shareUrl, "_blank", "noopener,noreferrer");
+    toast.message("Membuka tautan…");
   }
 
   return (
@@ -48,8 +55,8 @@ export function ShareDialog({
         <div className="space-y-2">
           <Input value={shareUrl ?? ""} readOnly />
           <p className="text-xs text-muted-foreground">
-            Kirim tautan ini ke penerima. Setelah dipakai (atau kedaluwarsa),
-            tautan tidak bisa digunakan lagi.
+            Kirim tautan ini ke penerima. Setelah dipakai (atau kedaluwarsa), tautan tidak bisa
+            digunakan lagi.
           </p>
         </div>
 
@@ -57,6 +64,11 @@ export function ShareDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
             Tutup
           </Button>
+
+          <Button variant="outline" onClick={openLink} disabled={!shareUrl} type="button">
+            Buka Tautan
+          </Button>
+
           <Button onClick={copy} disabled={!shareUrl} type="button">
             Salin Tautan
           </Button>

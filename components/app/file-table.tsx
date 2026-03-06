@@ -62,7 +62,6 @@ function displayName(name: string) {
 function formatUploadedAt(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
-  // Contoh: 06 Mar 2026, 13.45
   return new Intl.DateTimeFormat("id-ID", {
     day: "2-digit",
     month: "short",
@@ -131,6 +130,14 @@ export function FileTable({
 
   const preview = usePreviewDialog();
 
+  function showLoading(message: string) {
+    return toast.loading(message);
+  }
+
+  function closeToast(id: string | number) {
+    toast.dismiss(id);
+  }
+
   const load = React.useCallback(async () => {
     setLoading(true);
 
@@ -154,6 +161,8 @@ export function FileTable({
   }, [refreshKey, load]);
 
   async function handleShare(id: string) {
+    const t = showLoading("Membuat tautan…");
+
     try {
       setBusyId(id);
 
@@ -173,28 +182,31 @@ export function FileTable({
         await navigator.clipboard.writeText(j.share_url);
         toast.success("Tautan dibuat & disalin");
       } catch {
-        // ignore
+        toast.success("Tautan berhasil dibuat");
       }
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
     } finally {
+      closeToast(t);
       setBusyId(null);
     }
   }
 
   async function handleDownload(id: string) {
+    const t = showLoading("Menyiapkan download…");
+
     try {
       setBusyId(id);
-      const res = await fetch(`/api/files/${id}/signed-download`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/files/${id}/signed-download`, { method: "POST" });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal download");
 
+      toast.success("Download siap");
       window.location.href = j.url;
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
     } finally {
+      closeToast(t);
       setBusyId(null);
     }
   }
@@ -211,6 +223,8 @@ export function FileTable({
   async function confirmDelete() {
     if (!pendingDelete) return;
 
+    const t = showLoading("Menghapus file…");
+
     try {
       setBusyId(pendingDelete.id);
       const res = await fetch(`/api/files/${pendingDelete.id}`, { method: "DELETE" });
@@ -226,6 +240,7 @@ export function FileTable({
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
     } finally {
+      closeToast(t);
       setBusyId(null);
     }
   }
