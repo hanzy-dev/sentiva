@@ -21,7 +21,7 @@ type FileRow = {
   original_name: string;
   mime_type: string;
   size_bytes: number;
-  created_at: string;
+  created_at: string; // ISO string
 };
 
 function formatBytes(bytes: number) {
@@ -59,20 +59,49 @@ function displayName(name: string) {
   return name.replace(uuidPrefix, "");
 }
 
+function formatUploadedAt(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  // Contoh: 06 Mar 2026, 13.45
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+}
+
+function sortNewestFirst(rows: FileRow[]) {
+  return [...rows].sort((a, b) => {
+    const ta = Date.parse(a.created_at);
+    const tb = Date.parse(b.created_at);
+    const na = Number.isNaN(ta) ? 0 : ta;
+    const nb = Number.isNaN(tb) ? 0 : tb;
+    return nb - na;
+  });
+}
+
 function SkeletonRow() {
   return (
     <div className="grid grid-cols-12 items-center gap-3 px-4 py-3">
-      <div className="col-span-6">
+      <div className="col-span-5">
         <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
       </div>
-      <div className="col-span-3 hidden sm:block">
+
+      <div className="col-span-2 hidden lg:block">
         <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
       </div>
+
+      <div className="col-span-3 hidden sm:block">
+        <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+      </div>
+
       <div className="col-span-1 text-right">
         <div className="ml-auto h-4 w-12 animate-pulse rounded bg-muted" />
       </div>
-      <div className="col-span-2 flex justify-end gap-2">
-        <div className="h-8 w-24 animate-pulse rounded bg-muted" />
+
+      <div className="col-span-1 flex justify-end">
         <div className="h-8 w-10 animate-pulse rounded bg-muted" />
       </div>
     </div>
@@ -96,12 +125,15 @@ export function FileTable({
   const [shareUrl, setShareUrl] = React.useState<string | null>(null);
 
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [pendingDelete, setPendingDelete] = React.useState<{ id: string; name: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = React.useState<{ id: string; name: string } | null>(
+    null
+  );
 
   const preview = usePreviewDialog();
 
   const load = React.useCallback(async () => {
     setLoading(true);
+
     const res = await fetch("/api/files");
     const j = await res.json().catch(() => null);
 
@@ -112,7 +144,8 @@ export function FileTable({
       return;
     }
 
-    setFiles(j.files ?? []);
+    const rows: FileRow[] = Array.isArray(j?.files) ? j.files : [];
+    setFiles(sortNewestFirst(rows));
     setLoading(false);
   }, []);
 
@@ -201,10 +234,11 @@ export function FileTable({
     <>
       <div className="rounded-xl border bg-background shadow-sm">
         <div className="grid grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
-          <div className="col-span-6">Nama</div>
-          <div className="col-span-3 hidden sm:block">Tipe</div>
+          <div className="col-span-5">Nama</div>
+          <div className="col-span-2 hidden lg:block">Tipe</div>
+          <div className="col-span-3 hidden sm:block">Diunggah</div>
           <div className="col-span-1 text-right">Ukuran</div>
-          <div className="col-span-2 text-right">Aksi</div>
+          <div className="col-span-1 text-right">Aksi</div>
         </div>
 
         <Separator />
@@ -222,8 +256,7 @@ export function FileTable({
             </div>
             <div className="text-sm font-semibold">Belum ada file</div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Unggah file pertama kamu untuk mulai. Kamu bisa unduh aman dan buat
-              tautan sekali pakai.
+              Unggah file pertama kamu untuk mulai. Kamu bisa unduh aman dan buat tautan sekali pakai.
             </p>
 
             <div className="mt-4 flex justify-center">
@@ -238,22 +271,27 @@ export function FileTable({
           <div className="divide-y">
             {files.map((f) => {
               const name = displayName(f.original_name);
+
               return (
                 <div
                   key={f.id}
-                  className="grid grid-cols-12 items-center gap-3 px-4 py-3 text-sm"
+                  className="grid grid-cols-12 items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/30"
                 >
-                  <div className="col-span-6 truncate font-medium">{name}</div>
+                  <div className="col-span-5 truncate font-medium">{name}</div>
+
+                  <div className="col-span-2 hidden lg:block truncate text-muted-foreground">
+                    {humanFileType(f.mime_type)}
+                  </div>
 
                   <div className="col-span-3 hidden sm:block truncate text-muted-foreground">
-                    {humanFileType(f.mime_type)}
+                    {formatUploadedAt(f.created_at)}
                   </div>
 
                   <div className="col-span-1 text-right text-muted-foreground">
                     {formatBytes(f.size_bytes)}
                   </div>
 
-                  <div className="col-span-2 flex justify-end gap-2">
+                  <div className="col-span-1 flex justify-end gap-2">
                     <Button
                       size="sm"
                       variant="outline"
@@ -262,17 +300,12 @@ export function FileTable({
                       className="gap-2"
                     >
                       <Download className="h-4 w-4" />
-                      Unduh
+                      <span className="hidden md:inline">Unduh</span>
                     </Button>
 
                     <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={busyId === f.id}
-                        >
+                        <Button type="button" size="sm" variant="outline" disabled={busyId === f.id}>
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -340,9 +373,7 @@ export function FileTable({
         }}
         title="Hapus file?"
         description={
-          pendingDelete
-            ? `File "${pendingDelete.name}" akan dipindahkan ke sampah (soft delete).`
-            : undefined
+          pendingDelete ? `File "${pendingDelete.name}" akan dipindahkan ke sampah (soft delete).` : undefined
         }
         confirmText="Hapus"
         cancelText="Batal"
