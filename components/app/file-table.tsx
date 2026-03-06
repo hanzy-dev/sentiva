@@ -5,14 +5,31 @@ import { PreviewDialog, usePreviewDialog } from "@/components/app/preview-dialog
 import { ShareDialog } from "@/components/app/share-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Download, Eye, MoreHorizontal, Share2, Trash2 } from "lucide-react";
+import {
+  Download,
+  Eye,
+  MoreHorizontal,
+  Pencil,
+  RotateCcw,
+  Share2,
+  Trash2,
+} from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -22,7 +39,11 @@ type FileRow = {
   mime_type: string;
   size_bytes: number;
   created_at: string; // ISO string
+  deleted_at?: string | null; // present when listing trash
 };
+
+export type FileTypeFilter = "all" | "images" | "documents" | "media" | "other";
+export type FileTableMode = "vault" | "trash";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -47,8 +68,12 @@ function humanFileType(mime: string) {
   if (m.includes("presentationml")) return "PPTX";
   if (m.includes("png")) return "PNG";
   if (m.includes("jpeg") || m.includes("jpg")) return "JPG";
+  if (m.includes("webp")) return "WEBP";
+  if (m.includes("gif")) return "GIF";
   if (m.includes("zip")) return "ZIP";
   if (m.includes("text/plain")) return "TXT";
+  if (m.includes("video/")) return "VIDEO";
+  if (m.includes("audio/")) return "AUDIO";
   if (m.includes("application/octet-stream")) return "FILE";
   return "FILE";
 }
@@ -59,7 +84,7 @@ function displayName(name: string) {
   return name.replace(uuidPrefix, "");
 }
 
-function formatUploadedAt(iso: string) {
+function formatDateTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
   return new Intl.DateTimeFormat("id-ID", {
@@ -81,10 +106,31 @@ function sortNewestFirst(rows: FileRow[]) {
   });
 }
 
+function classify(mime: string): FileTypeFilter {
+  const m = (mime || "").toLowerCase();
+  if (m.startsWith("image/")) return "images";
+  if (m.startsWith("video/") || m.startsWith("audio/")) return "media";
+
+  if (
+    m === "application/pdf" ||
+    m.includes("wordprocessingml") ||
+    m.includes("msword") ||
+    m.includes("spreadsheetml") ||
+    m.includes("ms-excel") ||
+    m.includes("presentationml") ||
+    m.includes("ms-powerpoint") ||
+    m === "text/plain"
+  ) {
+    return "documents";
+  }
+
+  return "other";
+}
+
 function SkeletonRow() {
   return (
-    <div className="grid grid-cols-12 items-center gap-3 px-4 py-3">
-      <div className="col-span-5">
+    <div className="grid min-w-[720px] grid-cols-12 items-center gap-3 px-4 py-3">
+      <div className="col-span-4">
         <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
       </div>
 
@@ -100,7 +146,8 @@ function SkeletonRow() {
         <div className="ml-auto h-4 w-12 animate-pulse rounded bg-muted" />
       </div>
 
-      <div className="col-span-1 flex justify-end">
+      <div className="col-span-2 flex justify-end gap-2">
+        <div className="h-8 w-20 animate-pulse rounded bg-muted" />
         <div className="h-8 w-10 animate-pulse rounded bg-muted" />
       </div>
     </div>
@@ -111,10 +158,16 @@ export function FileTable({
   refreshKey,
   onChanged,
   onRequestUpload,
+  searchQuery,
+  typeFilter = "all",
+  mode = "vault",
 }: {
   refreshKey: number;
   onChanged?: () => void;
   onRequestUpload?: () => void;
+  searchQuery?: string;
+  typeFilter?: FileTypeFilter;
+  mode?: FileTableMode;
 }) {
   const [files, setFiles] = React.useState<FileRow[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -131,46 +184,38 @@ export function FileTable({
     null
   );
 
+  const [renameOpen, setRenameOpen] = React.useState(false);
+  const [renameBusy, setRenameBusy] = React.useState(false);
+  const [renameTarget, setRenameTarget] = React.useState<{ id: string; current: string } | null>(
+    null
+  );
+  const [renameValue, setRenameValue] = React.useState("");
+
   const preview = usePreviewDialog();
 
-  function showLoading(message: string) {
-    return toast.loading(message);
-  }
-
-  function closeToast(id: string | number) {
-    toast.dismiss(id);
-  }
-
-  // Abort controller supaya tidak ada "setState on unmounted component"
-  // dan supaya load sebelumnya tidak bikin state nyangkut.
   const abortRef = React.useRef<AbortController | null>(null);
 
   const load = React.useCallback(async () => {
-    // batalkan request sebelumnya (kalau ada)
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     setLoading(true);
 
-    // Timeout ringan supaya tidak selamanya skeleton jika jaringan/edge lagi bermasalah.
     const timeoutMs = 15000;
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch("/api/files", {
+      const url = mode === "trash" ? "/api/files?trash=1" : "/api/files";
+
+      const res = await fetch(url, {
         method: "GET",
         signal: controller.signal,
-        // aman untuk kasus cookie/session di production
         credentials: "same-origin",
-        // kurangi risiko cache aneh di production
         cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
+        headers: { accept: "application/json" },
       });
 
-      // parsing JSON aman
       const j = await res.json().catch(() => null);
 
       if (!res.ok) {
@@ -182,11 +227,7 @@ export function FileTable({
       const rows: FileRow[] = Array.isArray(j?.files) ? j.files : [];
       setFiles(sortNewestFirst(rows));
     } catch (err: unknown) {
-      // Kalau abort karena refresh/unmount/timeout: tidak perlu toast error yang mengganggu
       if (err instanceof DOMException && err.name === "AbortError") {
-        // Jika abort karena timeout, tampilkan pesan yang jelas.
-        // Kita bedakan sederhana: kalau masih loading dan tidak ada data, anggap timeout.
-        // (Tetap tidak menghapus fitur apa pun; hanya memberi feedback.)
         toast.error("Gagal memuat file (timeout). Coba refresh.");
       } else {
         toast.error(getErrorMessage(err));
@@ -196,20 +237,15 @@ export function FileTable({
       window.clearTimeout(timeoutId);
       setLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   React.useEffect(() => {
     load();
-
-    // cleanup saat unmount
-    return () => {
-      abortRef.current?.abort();
-    };
+    return () => abortRef.current?.abort();
   }, [refreshKey, load]);
 
   async function handleShare(id: string) {
-    const t = showLoading("Membuat tautan…");
-
+    const t = toast.loading("Membuat tautan…");
     try {
       setBusyId(id);
 
@@ -237,26 +273,42 @@ export function FileTable({
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
     } finally {
-      closeToast(t);
+      toast.dismiss(t);
       setBusyId(null);
     }
   }
 
   async function handleDownload(id: string) {
-    const t = showLoading("Menyiapkan download…");
-
+    const t = toast.loading("Menyiapkan download…");
     try {
       setBusyId(id);
       const res = await fetch(`/api/files/${id}/signed-download`, { method: "POST" });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal download");
-
       toast.success("Download siap");
       window.location.href = j.url;
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
     } finally {
-      closeToast(t);
+      toast.dismiss(t);
+      setBusyId(null);
+    }
+  }
+
+  async function handleRestore(id: string) {
+    const t = toast.loading("Merestore file…");
+    try {
+      setBusyId(id);
+      const res = await fetch(`/api/files/${id}/restore`, { method: "POST" });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error?.message ?? "Gagal restore file");
+      toast.success("File direstore");
+      await load();
+      onChanged?.();
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      toast.dismiss(t);
       setBusyId(null);
     }
   }
@@ -273,7 +325,7 @@ export function FileTable({
   async function confirmDelete() {
     if (!pendingDelete) return;
 
-    const t = showLoading("Menghapus file…");
+    const t = toast.loading("Menghapus file…");
 
     try {
       setBusyId(pendingDelete.id);
@@ -290,136 +342,240 @@ export function FileTable({
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
     } finally {
-      closeToast(t);
+      toast.dismiss(t);
       setBusyId(null);
     }
   }
 
+  function openRename(id: string, currentDisplayName: string) {
+    setRenameTarget({ id, current: currentDisplayName });
+    setRenameValue(currentDisplayName);
+    setRenameOpen(true);
+  }
+
+  async function confirmRename() {
+    if (!renameTarget) return;
+    const nextName = (renameValue || "").trim();
+    if (!nextName) return toast.error("Nama file tidak boleh kosong.");
+
+    const t = toast.loading("Mengganti nama…");
+    try {
+      setRenameBusy(true);
+      const res = await fetch(`/api/files/${renameTarget.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ original_name: nextName }),
+      });
+
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error?.message ?? "Gagal rename file");
+
+      toast.success("Nama file diperbarui");
+      setFiles((prev) =>
+        prev.map((f) => (f.id === renameTarget.id ? { ...f, original_name: nextName } : f))
+      );
+      setRenameOpen(false);
+      setRenameTarget(null);
+      onChanged?.();
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      toast.dismiss(t);
+      setRenameBusy(false);
+    }
+  }
+
+  const query = (searchQuery ?? "").trim().toLowerCase();
+  const visibleFiles = React.useMemo(() => {
+    let rows = files;
+
+    if (typeFilter !== "all") {
+      rows = rows.filter((f) => classify(f.mime_type) === typeFilter);
+    }
+    if (query.length > 0) {
+      rows = rows.filter((f) => displayName(f.original_name).toLowerCase().includes(query));
+    }
+    return rows;
+  }, [files, query, typeFilter]);
+
+  const emptyTitle =
+    files.length === 0 ? (mode === "trash" ? "Trash kosong" : "Belum ada file") : "Tidak ada hasil";
+  const emptyDesc =
+    files.length === 0
+      ? mode === "trash"
+        ? "File yang kamu hapus akan muncul di sini."
+        : "Unggah file pertama kamu untuk mulai. Kamu bisa unduh aman dan buat tautan sekali pakai."
+      : "Coba ubah kata kunci pencarian atau filter.";
+
   return (
     <>
       <div className="rounded-xl border bg-background shadow-sm">
-        <div className="grid grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
-          <div className="col-span-5">Nama</div>
-          <div className="col-span-2 hidden lg:block">Tipe</div>
-          <div className="col-span-3 hidden sm:block">Diunggah</div>
-          <div className="col-span-1 text-right">Ukuran</div>
-          <div className="col-span-1 text-right">Aksi</div>
-        </div>
-
-        <Separator />
-
-        {loading ? (
-          <div className="divide-y">
-            <SkeletonRow />
-            <SkeletonRow />
-            <SkeletonRow />
+        <div className="overflow-x-auto">
+          <div className="grid min-w-[720px] grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
+            <div className="col-span-4">Nama</div>
+            <div className="col-span-2 hidden lg:block">Tipe</div>
+            <div className="col-span-3 hidden sm:block">{mode === "trash" ? "Dihapus" : "Diunggah"}</div>
+            <div className="col-span-1 text-right">Ukuran</div>
+            <div className="col-span-2 text-right">Aksi</div>
           </div>
-        ) : files.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border bg-background shadow-sm">
-              <span className="text-lg">⬆️</span>
+
+          <Separator />
+
+          {loading ? (
+            <div className="divide-y">
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
             </div>
-            <div className="text-sm font-semibold">Belum ada file</div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Unggah file pertama kamu untuk mulai. Kamu bisa unduh aman dan buat tautan sekali pakai.
-            </p>
+          ) : visibleFiles.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border bg-background shadow-sm">
+                <span className="text-lg">{mode === "trash" ? "🗑️" : "⬆️"}</span>
+              </div>
 
-            <div className="mt-4 flex justify-center">
-              <Button onClick={onRequestUpload}>Unggah Sekarang</Button>
+              <div className="text-sm font-semibold">{emptyTitle}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{emptyDesc}</p>
+
+              {files.length === 0 && mode === "vault" ? (
+                <>
+                  <div className="mt-4 flex justify-center">
+                    <Button onClick={onRequestUpload}>Unggah Sekarang</Button>
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Upload menggunakan Direct-to-Storage untuk efisiensi biaya.
+                  </p>
+                </>
+              ) : null}
             </div>
+          ) : (
+            <div className="divide-y">
+              {visibleFiles.map((f) => {
+                const name = displayName(f.original_name);
+                const timeIso = mode === "trash" ? (f.deleted_at ?? f.created_at) : f.created_at;
 
-            <p className="mt-3 text-xs text-muted-foreground">
-              Upload menggunakan Direct-to-Storage untuk efisiensi biaya.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {files.map((f) => {
-              const name = displayName(f.original_name);
+                return (
+                  <div
+                    key={f.id}
+                    className="grid min-w-[720px] grid-cols-12 items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/30"
+                  >
+                    <div className="col-span-4 truncate font-medium">{name}</div>
 
-              return (
-                <div
-                  key={f.id}
-                  className="grid grid-cols-12 items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/30"
-                >
-                  <div className="col-span-5 truncate font-medium">{name}</div>
+                    <div className="col-span-2 hidden lg:block truncate text-muted-foreground">
+                      {humanFileType(f.mime_type)}
+                    </div>
 
-                  <div className="col-span-2 hidden lg:block truncate text-muted-foreground">
-                    {humanFileType(f.mime_type)}
-                  </div>
+                    <div className="col-span-3 hidden sm:block truncate text-muted-foreground">
+                      {formatDateTime(timeIso)}
+                    </div>
 
-                  <div className="col-span-3 hidden sm:block truncate text-muted-foreground">
-                    {formatUploadedAt(f.created_at)}
-                  </div>
+                    <div className="col-span-1 text-right text-muted-foreground">
+                      {formatBytes(f.size_bytes)}
+                    </div>
 
-                  <div className="col-span-1 text-right text-muted-foreground">
-                    {formatBytes(f.size_bytes)}
-                  </div>
-
-                  <div className="col-span-1 flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleDownload(f.id)}
-                      disabled={busyId === f.id}
-                      className="gap-2"
-                    >
-                      <Download className="h-4 w-4" />
-                      <span className="hidden md:inline">Unduh</span>
-                    </Button>
-
-                    <DropdownMenu modal={false}>
-                      <DropdownMenuTrigger asChild>
-                        <Button type="button" size="sm" variant="outline" disabled={busyId === f.id}>
-                          <MoreHorizontal className="h-4 w-4" />
+                    <div className="col-span-2 flex justify-end gap-2">
+                      {mode === "trash" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRestore(f.id)}
+                          disabled={busyId === f.id || renameBusy}
+                          className="gap-2"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          <span className="hidden lg:inline">Restore</span>
                         </Button>
-                      </DropdownMenuTrigger>
-
-                      <DropdownMenuContent align="end" className="min-w-[220px]">
-                        <DropdownMenuItem
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            handlePreview(f.id, name);
-                          }}
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleDownload(f.id)}
+                          disabled={busyId === f.id || renameBusy}
                           className="gap-2"
                         >
-                          <Eye className="h-4 w-4" />
-                          Preview
-                        </DropdownMenuItem>
+                          <Download className="h-4 w-4" />
+                          <span className="hidden lg:inline">Unduh</span>
+                        </Button>
+                      )}
 
-                        <DropdownMenuSeparator />
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <Button type="button" size="sm" variant="outline" disabled={busyId === f.id || renameBusy}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
 
-                        <DropdownMenuItem
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            handleShare(f.id);
-                          }}
-                          className="gap-2"
-                        >
-                          <Share2 className="h-4 w-4" />
-                          Bagikan (24 jam • sekali pakai)
-                        </DropdownMenuItem>
+                        <DropdownMenuContent align="end" className="min-w-[220px]">
+                          {mode === "vault" ? (
+                            <>
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  handlePreview(f.id, name);
+                                }}
+                                className="gap-2"
+                              >
+                                <Eye className="h-4 w-4" />
+                                Preview
+                              </DropdownMenuItem>
 
-                        <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  openRename(f.id, name);
+                                }}
+                                className="gap-2"
+                              >
+                                <Pencil className="h-4 w-4" />
+                                Rename
+                              </DropdownMenuItem>
 
-                        <DropdownMenuItem
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            askDelete(f.id, name);
-                          }}
-                          className="gap-2 text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Hapus
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                              <DropdownMenuSeparator />
+
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  handleShare(f.id);
+                                }}
+                                className="gap-2"
+                              >
+                                <Share2 className="h-4 w-4" />
+                                Bagikan (24 jam • sekali pakai)
+                              </DropdownMenuItem>
+
+                              <DropdownMenuSeparator />
+
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  askDelete(f.id, name);
+                                }}
+                                className="gap-2 text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Hapus
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                handleRestore(f.id);
+                              }}
+                              className="gap-2"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                              Restore
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       <ShareDialog
@@ -445,7 +601,9 @@ export function FileTable({
         }}
         title="Hapus file?"
         description={
-          pendingDelete ? `File "${pendingDelete.name}" akan dipindahkan ke sampah (soft delete).` : undefined
+          pendingDelete
+            ? `File "${pendingDelete.name}" akan dipindahkan ke sampah (soft delete).`
+            : undefined
         }
         confirmText="Hapus"
         cancelText="Batal"
@@ -453,6 +611,49 @@ export function FileTable({
         loading={pendingDelete ? busyId === pendingDelete.id : false}
         onConfirm={confirmDelete}
       />
+
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(v) => {
+          if (renameBusy) return;
+          setRenameOpen(v);
+          if (!v) {
+            setRenameTarget(null);
+            setRenameValue("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename file</DialogTitle>
+            <DialogDescription>
+              Ubah nama file (metadata). Tidak mengubah isi file di storage.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">Nama baru</div>
+            <Input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              placeholder="contoh: laporan-q1.pdf"
+              disabled={renameBusy}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmRename();
+              }}
+            />
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renameBusy} type="button">
+              Batal
+            </Button>
+            <Button onClick={confirmRename} loading={renameBusy} loadingText="Menyimpan…" type="button">
+              Simpan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <PreviewDialog state={preview.state} onClose={preview.close} />
     </>
