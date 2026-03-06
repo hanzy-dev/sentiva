@@ -120,16 +120,24 @@ function stageLabel(stage: UploadStage) {
   }
 }
 
-function validateBeforeUpload(file: File): { ok: true; mime: string } | { ok: false; message: string } {
+function validateBeforeUpload(
+  file: File
+): { ok: true; mime: string } | { ok: false; message: string } {
   if (!file) return { ok: false, message: "Pilih file terlebih dahulu." };
-  if (!file.name || file.name.trim().length === 0) return { ok: false, message: "Nama file tidak valid." };
-  if (!Number.isFinite(file.size) || file.size <= 0) return { ok: false, message: "Ukuran file tidak valid." };
+  if (!file.name || file.name.trim().length === 0)
+    return { ok: false, message: "Nama file tidak valid." };
+  if (!Number.isFinite(file.size) || file.size <= 0)
+    return { ok: false, message: "Ukuran file tidak valid." };
   if (file.size > MAX_CLIENT_SIZE_BYTES) {
-    return { ok: false, message: `Ukuran file melebihi batas (${formatBytes(MAX_CLIENT_SIZE_BYTES)}).` };
+    return {
+      ok: false,
+      message: `Ukuran file melebihi batas (${formatBytes(MAX_CLIENT_SIZE_BYTES)}).`,
+    };
   }
 
   const mime = file.type || guessMimeType(file);
-  if (!mime || mime.trim().length === 0) return { ok: false, message: "Tipe file tidak dikenali." };
+  if (!mime || mime.trim().length === 0)
+    return { ok: false, message: "Tipe file tidak dikenali." };
   if (!ALLOWED_MIME_TYPES.has(mime)) {
     return { ok: false, message: `Tipe file (${mime}) tidak diizinkan.` };
   }
@@ -296,8 +304,7 @@ export function UploadDialog({
           <button
             type="button"
             onClick={onPickFile}
-            onDragOver={(e) => e.preventDefault()
-            }
+            onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
             disabled={isUploading}
             className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-background px-4 py-8 text-left transition hover:bg-muted/40 disabled:opacity-60"
@@ -310,11 +317,13 @@ export function UploadDialog({
 
             {file ? (
               <div className="mt-1 text-xs text-muted-foreground">
-                Dipilih: <span className="font-medium">{file.name}</span> • {formatBytes(file.size)}
+                Dipilih: <span className="font-medium">{file.name}</span> •{" "}
+                {formatBytes(file.size)}
               </div>
             ) : (
               <div className="mt-1 text-xs text-muted-foreground">
-                Batas ukuran: {formatBytes(MAX_CLIENT_SIZE_BYTES)} • Tipe: PDF, image, office, video, audio
+                Batas ukuran: {formatBytes(MAX_CLIENT_SIZE_BYTES)} • Tipe: PDF, image, office, video,
+                audio
               </div>
             )}
           </button>
@@ -336,17 +345,18 @@ export function UploadDialog({
           ) : null}
 
           <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={isUploading}
-              type="button"
-            >
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={isUploading} type="button">
               Tutup
             </Button>
 
-            <Button onClick={handleUpload} disabled={!file || isUploading} type="button">
-              {isUploading ? "Mengunggah…" : "Upload"}
+            <Button
+              onClick={handleUpload}
+              disabled={!file}
+              loading={isUploading}
+              loadingText="Mengunggah…"
+              type="button"
+            >
+              Upload
             </Button>
           </div>
         </div>

@@ -39,7 +39,6 @@ export function ShareDialog({
   onOpenChange: (v: boolean) => void;
   shareUrl: string | null;
 
-  // Batch 3 additions
   shareLinkId: string | null;
   expiresAt: string | null;
   maxViews: number | null;
@@ -119,11 +118,21 @@ export function ShareDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={revoking} type="button">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={revoking}
+            type="button"
+          >
             Tutup
           </Button>
 
-          <Button variant="outline" onClick={openLink} disabled={!shareUrl || revoking} type="button">
+          <Button
+            variant="outline"
+            onClick={openLink}
+            disabled={!shareUrl || revoking}
+            type="button"
+          >
             Buka
           </Button>
 
@@ -134,7 +143,9 @@ export function ShareDialog({
           <Button
             variant="destructive"
             onClick={revoke}
-            disabled={!shareLinkId || revoking}
+            disabled={!shareLinkId}
+            loading={revoking}
+            loadingText="Revoking…"
             type="button"
           >
             Revoke

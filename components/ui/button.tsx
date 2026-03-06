@@ -2,6 +2,7 @@
 
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -17,8 +18,7 @@ const buttonVariants = cva(
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
@@ -42,11 +42,44 @@ const buttonVariants = cva(
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    loading?: boolean;
+    loadingText?: string;
   };
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "default", asChild = false, ...props }, ref) => {
+  (
+    {
+      className,
+      variant = "default",
+      size = "default",
+      asChild = false,
+      loading = false,
+      loadingText,
+      disabled,
+      children,
+      ...props
+    },
+    ref
+  ) => {
     const Comp = asChild ? Slot : "button";
+    const isDisabled = disabled || loading;
+
+    // Untuk asChild (Link/Slot), kita tidak inject spinner agar tidak merusak struktur child.
+    if (asChild) {
+      return (
+        <Comp
+          ref={ref}
+          data-slot="button"
+          data-variant={variant}
+          data-size={size}
+          className={cn(buttonVariants({ variant, size, className }))}
+          aria-busy={loading ? true : undefined}
+          {...props}
+        >
+          {children}
+        </Comp>
+      );
+    }
 
     return (
       <Comp
@@ -55,8 +88,13 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-variant={variant}
         data-size={size}
         className={cn(buttonVariants({ variant, size, className }))}
+        disabled={isDisabled}
+        aria-busy={loading ? true : undefined}
         {...props}
-      />
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        {loading && loadingText ? loadingText : children}
+      </Comp>
     );
   }
 );

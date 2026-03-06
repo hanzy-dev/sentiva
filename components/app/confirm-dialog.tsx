@@ -2,12 +2,12 @@
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 
 export function ConfirmDialog({
@@ -32,13 +32,11 @@ export function ConfirmDialog({
   onConfirm: () => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => (!loading ? onOpenChange(v) : undefined)}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          {description ? (
-            <DialogDescription>{description}</DialogDescription>
-          ) : null}
+          {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
 
         <DialogFooter className="gap-2 sm:gap-0">
@@ -54,7 +52,8 @@ export function ConfirmDialog({
           <Button
             variant={destructive ? "destructive" : "default"}
             onClick={onConfirm}
-            disabled={loading}
+            loading={!!loading}
+            loadingText="Memproses…"
             type="button"
           >
             {confirmText}
