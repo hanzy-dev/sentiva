@@ -1,4 +1,4 @@
-import { jsonError } from "@/lib/http/errors";
+import { jsonError, rateLimitError } from "@/lib/http/errors";
 import { CORRELATION_ID_HEADER } from "@/lib/http/request-id";
 import { logger } from "@/lib/logging/logger";
 import { createRateLimiter } from "@/lib/security/rate-limit";
@@ -17,10 +17,7 @@ const limiter = createRateLimiter({
   window: "60 s",
 });
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, { params }: { params: { id: string } }) {
   const correlationId = request.headers.get(CORRELATION_ID_HEADER) ?? null;
 
   const supabase = createSupabaseServerClient();
@@ -37,7 +34,7 @@ export async function POST(
         { correlation_id: correlationId, user_id: userData.user.id },
         "share create rate limited"
       );
-      return jsonError("RATE_LIMITED", "Terlalu banyak permintaan.", 429);
+      return rateLimitError();
     }
   }
 
@@ -65,9 +62,7 @@ export async function POST(
   const token = generateShareToken();
   const token_hash = sha256(token);
 
-  const expires_at = new Date(
-    Date.now() + parsed.data.expires_in_minutes * 60_000
-  ).toISOString();
+  const expires_at = new Date(Date.now() + parsed.data.expires_in_minutes * 60_000).toISOString();
 
   const { data: linkRow, error: insErr } = await supabase
     .from("share_links")

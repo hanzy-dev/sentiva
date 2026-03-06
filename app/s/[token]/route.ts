@@ -24,10 +24,7 @@ function getOrCreateRequestId(request: Request): string {
   return crypto.randomUUID();
 }
 
-export async function GET(
-  request: Request,
-  { params }: { params: { token: string } }
-) {
+export async function GET(request: Request, { params }: { params: { token: string } }) {
   const token = params.token;
   if (!token || token.length < 20) return notFound();
 
@@ -36,7 +33,10 @@ export async function GET(
     const ip = getClientIp(request);
     const { success } = await limiter.limit(ip);
     if (!success) {
-      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+      return NextResponse.json(
+        { error: { code: "RATE_LIMITED", message: "Terlalu banyak permintaan." } },
+        { status: 429 }
+      );
     }
   }
 

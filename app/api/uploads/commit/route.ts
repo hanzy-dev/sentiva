@@ -1,4 +1,4 @@
-import { jsonError } from "@/lib/http/errors";
+import { jsonError, rateLimitError } from "@/lib/http/errors";
 import { CORRELATION_ID_HEADER } from "@/lib/http/request-id";
 import { logger } from "@/lib/logging/logger";
 import { createRateLimiter } from "@/lib/security/rate-limit";
@@ -21,10 +21,11 @@ export async function POST(request: Request) {
     return jsonError("UNAUTHORIZED", "Silakan login terlebih dahulu.", 401);
   }
 
+  // Rate limit per user (enabled only when Upstash env is configured)
   if (limiter) {
     const { success } = await limiter.limit(userData.user.id);
     if (!success) {
-      return jsonError("RATE_LIMITED", "Terlalu banyak permintaan.", 429);
+      return rateLimitError();
     }
   }
 

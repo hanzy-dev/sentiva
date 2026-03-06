@@ -23,3 +23,12 @@ export function jsonError(
     { status }
   );
 }
+
+// Batch 5: helpers to avoid string literal drift
+export function rateLimitError(message = "Terlalu banyak permintaan.") {
+  return jsonError("RATE_LIMITED", message, 429);
+}
+
+export function unauthorizedError(message = "Silakan login.") {
+  return jsonError("UNAUTHORIZED", message, 401);
+}

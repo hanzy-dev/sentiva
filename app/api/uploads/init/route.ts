@@ -1,4 +1,4 @@
-import { jsonError } from "@/lib/http/errors";
+import { jsonError, rateLimitError } from "@/lib/http/errors";
 import { CORRELATION_ID_HEADER } from "@/lib/http/request-id";
 import { logger } from "@/lib/logging/logger";
 import { createRateLimiter } from "@/lib/security/rate-limit";
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
   if (limiter) {
     const { success } = await limiter.limit(userData.user.id);
     if (!success) {
-      return jsonError("RATE_LIMITED", "Terlalu banyak permintaan.", 429);
+      return rateLimitError();
     }
   }
 
