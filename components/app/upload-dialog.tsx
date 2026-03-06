@@ -20,6 +20,41 @@ type InitResponse = {
   size_bytes: number;
 };
 
+const MAX_CLIENT_SIZE_BYTES = 200 * 1024 * 1024; // keep in sync with server default (200MB)
+const ALLOWED_MIME_TYPES = new Set<string>([
+  // Documents
+  "application/pdf",
+  "text/plain",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+
+  // Images
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+
+  // Video
+  "video/mp4",
+  "video/mpeg",
+  "video/quicktime",
+  "video/x-msvideo",
+  "video/webm",
+
+  // Audio
+  "audio/mpeg",
+  "audio/wav",
+  "audio/ogg",
+  "audio/webm",
+]);
+
+type UploadStage = "idle" | "preparing" | "uploading" | "committing" | "done" | "failed";
+
 function getErrorMessage(err: unknown) {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -68,6 +103,40 @@ function guessMimeType(file: File): string {
   return "application/octet-stream";
 }
 
+function stageLabel(stage: UploadStage) {
+  switch (stage) {
+    case "preparing":
+      return "Menyiapkan upload…";
+    case "uploading":
+      return "Mengunggah ke storage…";
+    case "committing":
+      return "Menyimpan metadata…";
+    case "done":
+      return "Selesai";
+    case "failed":
+      return "Gagal";
+    default:
+      return "";
+  }
+}
+
+function validateBeforeUpload(file: File): { ok: true; mime: string } | { ok: false; message: string } {
+  if (!file) return { ok: false, message: "Pilih file terlebih dahulu." };
+  if (!file.name || file.name.trim().length === 0) return { ok: false, message: "Nama file tidak valid." };
+  if (!Number.isFinite(file.size) || file.size <= 0) return { ok: false, message: "Ukuran file tidak valid." };
+  if (file.size > MAX_CLIENT_SIZE_BYTES) {
+    return { ok: false, message: `Ukuran file melebihi batas (${formatBytes(MAX_CLIENT_SIZE_BYTES)}).` };
+  }
+
+  const mime = file.type || guessMimeType(file);
+  if (!mime || mime.trim().length === 0) return { ok: false, message: "Tipe file tidak dikenali." };
+  if (!ALLOWED_MIME_TYPES.has(mime)) {
+    return { ok: false, message: `Tipe file (${mime}) tidak diizinkan.` };
+  }
+
+  return { ok: true, mime };
+}
+
 export function UploadDialog({
   onUploaded,
   open: controlledOpen,
@@ -84,11 +153,13 @@ export function UploadDialog({
   const [file, setFile] = React.useState<File | null>(null);
   const [isUploading, setIsUploading] = React.useState(false);
   const [progress, setProgress] = React.useState<number>(0);
+  const [stage, setStage] = React.useState<UploadStage>("idle");
 
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   function reset() {
     setProgress(0);
+    setStage("idle");
     setFile(null);
   }
 
@@ -109,13 +180,25 @@ export function UploadDialog({
   }
 
   async function handleUpload() {
-    if (!file) return;
+    if (!file) {
+      toast.error("Pilih file terlebih dahulu.");
+      return;
+    }
+
+    const v = validateBeforeUpload(file);
+    if (!v.ok) {
+      toast.error(v.message);
+      return;
+    }
 
     setIsUploading(true);
     setProgress(0);
+    setStage("preparing");
+
+    const t = toast.loading("Menyiapkan upload…");
 
     try {
-      const mime_type = file.type || guessMimeType(file);
+      const mime_type = v.mime;
 
       const initRes = await fetch("/api/uploads/init", {
         method: "POST",
@@ -127,16 +210,18 @@ export function UploadDialog({
         }),
       });
 
+      const initJson = await initRes.json().catch(() => null);
       if (!initRes.ok) {
-        const j = await initRes.json().catch(() => null);
-        throw new Error(j?.error?.message ?? "Gagal init upload");
+        throw new Error(initJson?.error?.message ?? "Gagal init upload");
       }
 
-      const init: InitResponse = await initRes.json();
+      const init: InitResponse = initJson;
 
       const supabase = createSupabaseBrowserClient();
 
+      setStage("uploading");
       setProgress(20);
+      toast.message("Mengunggah ke storage…");
 
       const { error: upErr } = await supabase.storage
         .from(init.bucket)
@@ -147,7 +232,10 @@ export function UploadDialog({
         });
 
       if (upErr) throw upErr;
+
+      setStage("committing");
       setProgress(80);
+      toast.message("Menyimpan metadata…");
 
       const commitRes = await fetch("/api/uploads/commit", {
         method: "POST",
@@ -155,20 +243,23 @@ export function UploadDialog({
         body: JSON.stringify(init),
       });
 
+      const commitJson = await commitRes.json().catch(() => null);
       if (!commitRes.ok) {
-        const j = await commitRes.json().catch(() => null);
-        throw new Error(j?.error?.message ?? "Gagal commit metadata");
+        throw new Error(commitJson?.error?.message ?? "Gagal commit metadata");
       }
 
       setProgress(100);
+      setStage("done");
       toast.success("Upload berhasil");
 
       reset();
       setOpen(false);
       onUploaded?.();
     } catch (err: unknown) {
+      setStage("failed");
       toast.error(getErrorMessage(err) ?? "Upload gagal");
     } finally {
+      toast.dismiss(t);
       setIsUploading(false);
     }
   }
@@ -205,7 +296,8 @@ export function UploadDialog({
           <button
             type="button"
             onClick={onPickFile}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => e.preventDefault()
+            }
             onDrop={onDrop}
             disabled={isUploading}
             className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-background px-4 py-8 text-left transition hover:bg-muted/40 disabled:opacity-60"
@@ -213,19 +305,16 @@ export function UploadDialog({
             <div className="text-2xl">📁</div>
             <div className="text-sm font-semibold">
               Klik untuk memilih file{" "}
-              <span className="font-normal text-muted-foreground">
-                atau seret file ke sini
-              </span>
+              <span className="font-normal text-muted-foreground">atau seret file ke sini</span>
             </div>
 
             {file ? (
               <div className="mt-1 text-xs text-muted-foreground">
-                Dipilih: <span className="font-medium">{file.name}</span> •{" "}
-                {formatBytes(file.size)}
+                Dipilih: <span className="font-medium">{file.name}</span> • {formatBytes(file.size)}
               </div>
             ) : (
               <div className="mt-1 text-xs text-muted-foreground">
-                Maksimal sesuai limit storage project kamu.
+                Batas ukuran: {formatBytes(MAX_CLIENT_SIZE_BYTES)} • Tipe: PDF, image, office, video, audio
               </div>
             )}
           </button>
@@ -241,7 +330,7 @@ export function UploadDialog({
 
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{progress}%</span>
-                <span>Sedang mengunggah…</span>
+                <span>{stageLabel(stage) || "Sedang mengunggah…"}</span>
               </div>
             </div>
           ) : null}
@@ -257,7 +346,7 @@ export function UploadDialog({
             </Button>
 
             <Button onClick={handleUpload} disabled={!file || isUploading} type="button">
-              Upload
+              {isUploading ? "Mengunggah…" : "Upload"}
             </Button>
           </div>
         </div>
