@@ -122,6 +122,9 @@ export function FileTable({
 
   const [shareOpen, setShareOpen] = React.useState(false);
   const [shareUrl, setShareUrl] = React.useState<string | null>(null);
+  const [shareLinkId, setShareLinkId] = React.useState<string | null>(null);
+  const [shareExpiresAt, setShareExpiresAt] = React.useState<string | null>(null);
+  const [shareMaxViews, setShareMaxViews] = React.useState<number | null>(null);
 
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pendingDelete, setPendingDelete] = React.useState<{ id: string; name: string } | null>(
@@ -175,11 +178,14 @@ export function FileTable({
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal membuat tautan");
 
-      setShareUrl(j.share_url);
+      setShareUrl(j.share_url ?? null);
+      setShareLinkId(j.share_link_id ?? null);
+      setShareExpiresAt(j.expires_at ?? null);
+      setShareMaxViews(typeof j.max_views === "number" ? j.max_views : null);
       setShareOpen(true);
 
       try {
-        await navigator.clipboard.writeText(j.share_url);
+        if (j?.share_url) await navigator.clipboard.writeText(j.share_url);
         toast.success("Tautan dibuat & disalin");
       } catch {
         toast.success("Tautan berhasil dibuat");
@@ -376,8 +382,15 @@ export function FileTable({
         open={shareOpen}
         onOpenChange={setShareOpen}
         shareUrl={shareUrl}
-        expiresLabel="berlaku 24 jam"
-        usageLabel="sekali pakai"
+        shareLinkId={shareLinkId}
+        expiresAt={shareExpiresAt}
+        maxViews={shareMaxViews}
+        onRevoked={() => {
+          setShareUrl(null);
+          setShareLinkId(null);
+          setShareExpiresAt(null);
+          setShareMaxViews(null);
+        }}
       />
 
       <ConfirmDialog
