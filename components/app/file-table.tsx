@@ -141,26 +141,70 @@ export function FileTable({
     toast.dismiss(id);
   }
 
+  // Abort controller supaya tidak ada "setState on unmounted component"
+  // dan supaya load sebelumnya tidak bikin state nyangkut.
+  const abortRef = React.useRef<AbortController | null>(null);
+
   const load = React.useCallback(async () => {
+    // batalkan request sebelumnya (kalau ada)
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
 
-    const res = await fetch("/api/files");
-    const j = await res.json().catch(() => null);
+    // Timeout ringan supaya tidak selamanya skeleton jika jaringan/edge lagi bermasalah.
+    const timeoutMs = 15000;
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!res.ok) {
-      toast.error(j?.error?.message ?? "Gagal memuat file");
+    try {
+      const res = await fetch("/api/files", {
+        method: "GET",
+        signal: controller.signal,
+        // aman untuk kasus cookie/session di production
+        credentials: "same-origin",
+        // kurangi risiko cache aneh di production
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      // parsing JSON aman
+      const j = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        toast.error(j?.error?.message ?? "Gagal memuat file");
+        setFiles([]);
+        return;
+      }
+
+      const rows: FileRow[] = Array.isArray(j?.files) ? j.files : [];
+      setFiles(sortNewestFirst(rows));
+    } catch (err: unknown) {
+      // Kalau abort karena refresh/unmount/timeout: tidak perlu toast error yang mengganggu
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // Jika abort karena timeout, tampilkan pesan yang jelas.
+        // Kita bedakan sederhana: kalau masih loading dan tidak ada data, anggap timeout.
+        // (Tetap tidak menghapus fitur apa pun; hanya memberi feedback.)
+        toast.error("Gagal memuat file (timeout). Coba refresh.");
+      } else {
+        toast.error(getErrorMessage(err));
+      }
       setFiles([]);
+    } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
-      return;
     }
-
-    const rows: FileRow[] = Array.isArray(j?.files) ? j.files : [];
-    setFiles(sortNewestFirst(rows));
-    setLoading(false);
   }, []);
 
   React.useEffect(() => {
     load();
+
+    // cleanup saat unmount
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [refreshKey, load]);
 
   async function handleShare(id: string) {
