@@ -22,6 +22,16 @@ export function applySecurityHeaders(res: NextResponse) {
     .filter(Boolean)
     .join(" ");
 
+  /**
+   * NOTE:
+   * Next.js membutuhkan inline script untuk hydration/bootstrapping di production.
+   * Jika production hanya "script-src 'self'", maka inline script diblokir
+   * dan UI client bisa terlihat stuck (mis. skeleton tidak pernah selesai).
+   */
+  const scriptSrc = isDev
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+    : "script-src 'self' 'unsafe-inline'";
+
   const csp = [
     "default-src 'self'",
     "base-uri 'self'",
@@ -33,10 +43,9 @@ export function applySecurityHeaders(res: NextResponse) {
     `frame-src 'self' blob: ${frameSrcAllow}`,
 
     "style-src 'self' 'unsafe-inline'",
-    isDev
-      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-      : "script-src 'self'",
+    scriptSrc,
 
+    // keep broad connect-src for API + supabase
     "connect-src 'self' https: ws: wss:",
   ].join("; ");
 
