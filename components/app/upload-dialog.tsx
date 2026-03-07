@@ -53,7 +53,22 @@ const ALLOWED_MIME_TYPES = new Set<string>([
   "audio/webm",
 ]);
 
-type UploadStage = "idle" | "preparing" | "uploading" | "committing" | "done" | "failed";
+type UploadStage =
+  | "queued"
+  | "preparing"
+  | "uploading"
+  | "committing"
+  | "done"
+  | "failed";
+
+type UploadItem = {
+  id: string;
+  file: File;
+  mime: string;
+  stage: UploadStage;
+  progress: number; // 0..100 (simulated)
+  error?: string;
+};
 
 function getErrorMessage(err: unknown) {
   if (err instanceof Error) return err.message;
@@ -105,6 +120,8 @@ function guessMimeType(file: File): string {
 
 function stageLabel(stage: UploadStage) {
   switch (stage) {
+    case "queued":
+      return "Menunggu…";
     case "preparing":
       return "Menyiapkan upload…";
     case "uploading":
@@ -124,25 +141,77 @@ function validateBeforeUpload(
   file: File
 ): { ok: true; mime: string } | { ok: false; message: string } {
   if (!file) return { ok: false, message: "Pilih file terlebih dahulu." };
-  if (!file.name || file.name.trim().length === 0)
+  if (!file.name || file.name.trim().length === 0) {
     return { ok: false, message: "Nama file tidak valid." };
-  if (!Number.isFinite(file.size) || file.size <= 0)
+  }
+  if (!Number.isFinite(file.size) || file.size <= 0) {
     return { ok: false, message: "Ukuran file tidak valid." };
+  }
   if (file.size > MAX_CLIENT_SIZE_BYTES) {
     return {
       ok: false,
-      message: `Ukuran file melebihi batas (${formatBytes(MAX_CLIENT_SIZE_BYTES)}).`,
+      message: `Ukuran file melebihi batas (${formatBytes(
+        MAX_CLIENT_SIZE_BYTES
+      )}).`,
     };
   }
 
   const mime = file.type || guessMimeType(file);
-  if (!mime || mime.trim().length === 0)
+  if (!mime || mime.trim().length === 0) {
     return { ok: false, message: "Tipe file tidak dikenali." };
+  }
   if (!ALLOWED_MIME_TYPES.has(mime)) {
     return { ok: false, message: `Tipe file (${mime}) tidak diizinkan.` };
   }
 
   return { ok: true, mime };
+}
+
+function makeId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+/**
+ * Simulated progress for nicer UX.
+ * - Upload stage starts at 20 and creeps up to max 75.
+ * - Speed depends on file size (bigger = slower).
+ */
+function startSimulatedProgress(opts: {
+  itemId: string;
+  fileSizeBytes: number;
+  start: number; // 20
+  cap: number; // 75
+  setItems: React.Dispatch<React.SetStateAction<UploadItem[]>>;
+}) {
+  const { itemId, fileSizeBytes, start, cap, setItems } = opts;
+
+  const mb = Math.max(0.1, fileSizeBytes / (1024 * 1024));
+
+  // tick: 180ms..520ms (bigger files tick slower)
+  const tickMs = Math.round(Math.min(520, Math.max(180, 180 + mb * 14)));
+
+  // step: 1..4 (bigger files have smaller steps)
+  const maxStep = mb >= 50 ? 1 : mb >= 20 ? 2 : mb >= 5 ? 3 : 4;
+
+  let current = start;
+
+  const timer = window.setInterval(() => {
+    const step = Math.max(1, Math.floor(Math.random() * maxStep) + 1);
+    current = Math.min(cap, current + step);
+
+    setItems((prev) =>
+      prev.map((x) => {
+        if (x.id !== itemId) return x;
+        if (x.stage !== "uploading") return x;
+        if (x.progress >= cap) return x;
+        return { ...x, progress: current };
+      })
+    );
+
+    if (current >= cap) window.clearInterval(timer);
+  }, tickMs);
+
+  return () => window.clearInterval(timer);
 }
 
 export function UploadDialog({
@@ -158,114 +227,254 @@ export function UploadDialog({
   const open = controlledOpen ?? uncontrolledOpen;
   const setOpen = controlledOnOpenChange ?? setUncontrolledOpen;
 
-  const [file, setFile] = React.useState<File | null>(null);
+  const [items, setItems] = React.useState<UploadItem[]>([]);
   const [isUploading, setIsUploading] = React.useState(false);
-  const [progress, setProgress] = React.useState<number>(0);
-  const [stage, setStage] = React.useState<UploadStage>("idle");
+
+  // Mirror latest items to avoid stale closure reads after awaits
+  const itemsRef = React.useRef<UploadItem[]>([]);
+  React.useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-  function reset() {
-    setProgress(0);
-    setStage("idle");
-    setFile(null);
+  const total = items.length;
+  const doneCount = items.filter((i) => i.stage === "done").length;
+  const failedCount = items.filter((i) => i.stage === "failed").length;
+
+  const overallProgress = React.useMemo(() => {
+    if (items.length === 0) return 0;
+    const sum = items.reduce(
+      (acc, it) => acc + (Number.isFinite(it.progress) ? it.progress : 0),
+      0
+    );
+    return Math.round(sum / items.length);
+  }, [items]);
+
+  function resetAll() {
+    setItems([]);
+    setIsUploading(false);
   }
 
   function onPickFile() {
     inputRef.current?.click();
   }
 
-  function onFileSelected(f: File | null) {
-    if (!f) return;
-    setFile(f);
+  function addFiles(files: File[]) {
+    if (isUploading) return;
+
+    const next: UploadItem[] = [];
+    const rejected: string[] = [];
+
+    for (const f of files) {
+      const v = validateBeforeUpload(f);
+      if (!v.ok) {
+        rejected.push(`${f.name}: ${v.message}`);
+        continue;
+      }
+
+      const dup = itemsRef.current.some(
+        (it) =>
+          it.file.name === f.name &&
+          it.file.size === f.size &&
+          it.file.lastModified === f.lastModified
+      );
+      if (dup) continue;
+
+      next.push({
+        id: makeId(),
+        file: f,
+        mime: v.mime,
+        stage: "queued",
+        progress: 0,
+      });
+    }
+
+    if (rejected.length > 0) {
+      toast.error(
+        `Beberapa file ditolak:\n${rejected.slice(0, 3).join("\n")}${
+          rejected.length > 3 ? "\n…" : ""
+        }`
+      );
+    }
+
+    if (next.length > 0) setItems((prev) => [...prev, ...next]);
+  }
+
+  function onFilesSelected(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    addFiles(Array.from(list));
   }
 
   function onDrop(e: React.DragEvent<HTMLButtonElement>) {
     e.preventDefault();
     if (isUploading) return;
-    const f = e.dataTransfer.files?.[0] ?? null;
-    onFileSelected(f);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length === 0) return;
+    addFiles(files);
   }
 
-  async function handleUpload() {
-    if (!file) {
-      toast.error("Pilih file terlebih dahulu.");
-      return;
+  function removeItem(id: string) {
+    if (isUploading) return;
+    setItems((prev) => prev.filter((x) => x.id !== id));
+  }
+
+  function clearFailed() {
+    if (isUploading) return;
+    setItems((prev) => prev.filter((x) => x.stage !== "failed"));
+  }
+
+  function retryFailed() {
+    if (isUploading) return;
+    setItems((prev) =>
+      prev.map((x) =>
+        x.stage === "failed"
+          ? { ...x, stage: "queued", progress: 0, error: undefined }
+          : x
+      )
+    );
+  }
+
+  async function uploadOne(item: UploadItem) {
+    setItems((prev) =>
+      prev.map((x) =>
+        x.id === item.id
+          ? { ...x, stage: "preparing", progress: 0, error: undefined }
+          : x
+      )
+    );
+
+    const initRes = await fetch("/api/uploads/init", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        original_name: item.file.name,
+        mime_type: item.mime,
+        size_bytes: item.file.size,
+      }),
+    });
+
+    const initJson = await initRes.json().catch(() => null);
+    if (!initRes.ok) {
+      throw new Error(initJson?.error?.message ?? "Gagal init upload");
     }
 
-    const v = validateBeforeUpload(file);
-    if (!v.ok) {
-      toast.error(v.message);
-      return;
-    }
+    const init: InitResponse = initJson;
 
-    setIsUploading(true);
-    setProgress(0);
-    setStage("preparing");
+    setItems((prev) =>
+      prev.map((x) =>
+        x.id === item.id ? { ...x, stage: "uploading", progress: 20 } : x
+      )
+    );
 
-    const t = toast.loading("Menyiapkan upload…");
+    const stopSim = startSimulatedProgress({
+      itemId: item.id,
+      fileSizeBytes: item.file.size,
+      start: 20,
+      cap: 75,
+      setItems,
+    });
 
     try {
-      const mime_type = v.mime;
-
-      const initRes = await fetch("/api/uploads/init", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          original_name: file.name,
-          mime_type,
-          size_bytes: file.size,
-        }),
-      });
-
-      const initJson = await initRes.json().catch(() => null);
-      if (!initRes.ok) {
-        throw new Error(initJson?.error?.message ?? "Gagal init upload");
-      }
-
-      const init: InitResponse = initJson;
-
       const supabase = createSupabaseBrowserClient();
-
-      setStage("uploading");
-      setProgress(20);
-      toast.message("Mengunggah ke storage…");
 
       const { error: upErr } = await supabase.storage
         .from(init.bucket)
-        .upload(init.object_path, file, {
-          contentType: init.mime_type || mime_type,
+        .upload(init.object_path, item.file, {
+          contentType: init.mime_type || item.mime,
           upsert: false,
           cacheControl: "3600",
         });
 
       if (upErr) throw upErr;
+    } finally {
+      stopSim();
+    }
 
-      setStage("committing");
-      setProgress(80);
-      toast.message("Menyimpan metadata…");
+    setItems((prev) =>
+      prev.map((x) =>
+        x.id === item.id ? { ...x, stage: "committing", progress: 80 } : x
+      )
+    );
 
-      const commitRes = await fetch("/api/uploads/commit", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(init),
-      });
+    const commitRes = await fetch("/api/uploads/commit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(init),
+    });
 
-      const commitJson = await commitRes.json().catch(() => null);
-      if (!commitRes.ok) {
-        throw new Error(commitJson?.error?.message ?? "Gagal commit metadata");
+    const commitJson = await commitRes.json().catch(() => null);
+    if (!commitRes.ok) {
+      throw new Error(commitJson?.error?.message ?? "Gagal commit metadata");
+    }
+
+    setItems((prev) =>
+      prev.map((x) =>
+        x.id === item.id ? { ...x, stage: "done", progress: 100 } : x
+      )
+    );
+  }
+
+  async function handleUploadAll() {
+    if (isUploading) return;
+
+    const current = itemsRef.current;
+    if (current.length === 0) {
+      toast.error("Pilih file terlebih dahulu.");
+      return;
+    }
+
+    const queue = current.filter((x) => x.stage === "queued");
+    if (queue.length === 0) {
+      toast.message("Tidak ada file yang perlu diupload.");
+      return;
+    }
+
+    setIsUploading(true);
+    const t = toast.loading(`Mengunggah ${queue.length} file…`);
+
+    let anySuccess = false;
+
+    try {
+      for (const it of queue) {
+        try {
+          await uploadOne(it);
+          anySuccess = true;
+        } catch (err: unknown) {
+          const msg = getErrorMessage(err);
+          setItems((prev) =>
+            prev.map((x) =>
+              x.id === it.id
+                ? { ...x, stage: "failed", progress: 0, error: msg }
+                : x
+            )
+          );
+        }
       }
 
-      setProgress(100);
-      setStage("done");
-      toast.success("Upload berhasil");
+      if (anySuccess) onUploaded?.();
 
-      reset();
-      setOpen(false);
-      onUploaded?.();
-    } catch (err: unknown) {
-      setStage("failed");
-      toast.error(getErrorMessage(err) ?? "Upload gagal");
+      const latest = itemsRef.current;
+      const hasFailed = latest.some((x) => x.stage === "failed");
+      const hasPending = latest.some(
+        (x) =>
+          x.stage === "queued" ||
+          x.stage === "preparing" ||
+          x.stage === "uploading" ||
+          x.stage === "committing"
+      );
+
+      if (hasFailed) {
+        toast.error("Sebagian file gagal diupload. Kamu bisa Retry yang gagal.");
+        return;
+      }
+
+      toast.success("Semua file berhasil diupload");
+
+      if (!hasPending) {
+        setOpen(false);
+        resetAll();
+      }
     } finally {
       toast.dismiss(t);
       setIsUploading(false);
@@ -278,7 +487,7 @@ export function UploadDialog({
       onOpenChange={(v) => {
         if (isUploading) return;
         setOpen(v);
-        if (!v) reset();
+        if (!v) resetAll();
       }}
     >
       {controlledOpen === undefined ? (
@@ -296,8 +505,9 @@ export function UploadDialog({
           <input
             ref={inputRef}
             type="file"
+            multiple
             className="hidden"
-            onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+            onChange={(e) => onFilesSelected(e.target.files)}
             disabled={isUploading}
           />
 
@@ -312,51 +522,148 @@ export function UploadDialog({
             <div className="text-2xl">📁</div>
             <div className="text-sm font-semibold">
               Klik untuk memilih file{" "}
-              <span className="font-normal text-muted-foreground">atau seret file ke sini</span>
+              <span className="font-normal text-muted-foreground">
+                atau seret banyak file ke sini
+              </span>
             </div>
 
-            {file ? (
+            {items.length > 0 ? (
               <div className="mt-1 text-xs text-muted-foreground">
-                Dipilih: <span className="font-medium">{file.name}</span> •{" "}
-                {formatBytes(file.size)}
+                Dipilih: <span className="font-medium">{items.length} file</span>
+                {doneCount > 0 ? <> • Selesai: {doneCount}</> : null}
+                {failedCount > 0 ? <> • Gagal: {failedCount}</> : null}
               </div>
             ) : (
               <div className="mt-1 text-xs text-muted-foreground">
-                Batas ukuran: {formatBytes(MAX_CLIENT_SIZE_BYTES)} • Tipe: PDF, image, office, video,
-                audio
+                Batas ukuran: {formatBytes(MAX_CLIENT_SIZE_BYTES)} • Tipe: PDF,
+                image, office, video, audio
               </div>
             )}
           </button>
 
-          {isUploading ? (
-            <div className="space-y-2">
-              <div className="h-2 w-full rounded bg-muted">
-                <div
-                  className="h-2 rounded bg-foreground transition-all"
-                  style={{ width: `${progress}%` }}
-                />
+          {items.length > 0 ? (
+            <div className="space-y-3">
+              {isUploading ? (
+                <div className="space-y-2">
+                  <div className="h-2 w-full rounded bg-muted">
+                    <div
+                      className="h-2 rounded bg-foreground transition-all"
+                      style={{ width: `${overallProgress}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{overallProgress}%</span>
+                    <span>
+                      {doneCount}/{total} selesai{" "}
+                      {failedCount > 0 ? `• ${failedCount} gagal` : ""}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="max-h-[260px] space-y-2 overflow-auto rounded-lg border bg-background p-2">
+                {items.map((it) => (
+                  <div
+                    key={it.id}
+                    className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-muted/30"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {it.file.name}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span>{formatBytes(it.file.size)}</span>
+                        <span>•</span>
+                        <span>{stageLabel(it.stage)}</span>
+                        {it.error ? (
+                          <>
+                            <span>•</span>
+                            <span className="text-destructive">{it.error}</span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isUploading ? (
+                        <div className="w-[80px] text-right text-xs text-muted-foreground">
+                          {it.stage === "uploading" ||
+                          it.stage === "committing" ||
+                          it.stage === "done"
+                            ? `${it.progress}%`
+                            : ""}
+                        </div>
+                      ) : null}
+
+                      {!isUploading ? (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          type="button"
+                          onClick={() => removeItem(it.id)}
+                        >
+                          Hapus
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{progress}%</span>
-                <span>{stageLabel(stage) || "Sedang mengunggah…"}</span>
-              </div>
+              {!isUploading ? (
+                <div className="flex flex-wrap justify-end gap-2">
+                  {failedCount > 0 ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={retryFailed}
+                        type="button"
+                      >
+                        Retry yang gagal
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearFailed}
+                        type="button"
+                      >
+                        Hapus yang gagal
+                      </Button>
+                    </>
+                  ) : null}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={resetAll}
+                    type="button"
+                  >
+                    Reset
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={isUploading} type="button">
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={isUploading}
+              type="button"
+            >
               Tutup
             </Button>
 
             <Button
-              onClick={handleUpload}
-              disabled={!file}
+              onClick={handleUploadAll}
+              disabled={items.length === 0 || isUploading}
               loading={isUploading}
               loadingText="Mengunggah…"
               type="button"
             >
-              Upload
+              Upload Semua
             </Button>
           </div>
         </div>
