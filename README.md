@@ -6,14 +6,33 @@
 
 **Sentiva** adalah *private file vault* untuk menyimpan dan berbagi file secara aman.
 
-Project ini fokus ke pola yang umum dipakai di production:
-**direct-to-storage upload (LFA)**, **signed URL**, **one-time / expiring share link (atomic via DB RPC)**, **RLS**, **security headers**, **observability (correlation id + structured logs)**, **rate limiting**, dan **cleanup job** untuk mencegah *cloud shock*.
+Fokus project ini: pola yang umum dipakai di production — **direct-to-storage upload (LFA)**, **signed URL**, **one-time / expiring share link (atomic via DB RPC)**, **RLS**, **security headers**, **observability (correlation id + structured logs)**, **rate limiting**, dan **cleanup job** untuk mencegah *cloud shock*.
 
 🌐 **Demo:** https://sentiva.vercel.app
 
 ---
 
+## Engineering Decisions (Why I built it this way)
+
+- **Bye-bye Payload Bottleneck**  
+  Server nggak bakal “sesak napas” karena upload file besar. Upload dilakukan **direct-to-bucket** (data plane), server cuma ngurus validasi & metadata (control plane).
+
+- **Zero-Trust Access**  
+  Nggak ada file yang kebuka publik. Akses selalu lewat **RLS** dan URL aksesnya berupa **signed URL** dengan TTL pendek.
+
+- **Race-Condition Proof**  
+  Logika **one-time link** dibikin bulletproof di level database (RPC) supaya nggak bisa dieksploitasi lewat request paralel.
+
+- **Automated Housekeeping**  
+  Menghindari “Cloud Shock” dengan rutin beresin file sampah (soft-deleted) lewat **cleanup endpoint** + **GitHub Actions cron**.
+
+- **Built for Debugging**  
+  Logs sudah terstruktur. Kalau ada error, tracing gampang karena ada **correlation ID** di setiap request.
+
+---
+
 ## Proof (CI + Tests)
+
 Project ini punya **CI** di GitHub Actions yang menjalankan: **lint → typecheck → test → build**.
 
 High-signal tests (Vitest):
@@ -21,21 +40,17 @@ High-signal tests (Vitest):
 - **Request ID propagation:** `/s/:token` meneruskan `p_request_id` ke RPC untuk audit trail.
 - **Upload commit idempotency contract:** saat insert metadata gagal (mis. duplicate), `/api/uploads/commit` fallback mengambil row existing → **tidak membuat metadata dobel**.
 
----
-
-## Kenapa project ini “bernilai tinggi”
-- **Large File Upload (LFA):** upload langsung ke Supabase Storage → hemat memory/CPU server (cocok untuk serverless).
-- **Security by default:** private bucket + RLS + signed URL TTL pendek + token share disimpan sebagai hash.
-- **Atomic share link:** konsumsi one-time link secara atomik untuk mencegah race condition.
-- **Cost control:** cleanup endpoint + GitHub Actions cron untuk menghapus file yang sudah soft-delete.
-- **Operasional siap produksi:** health endpoint, correlation id, structured logs, error handling konsisten, dan rate limiting.
+E2E tests (Playwright):
+- **Smoke tests:** home/login/health/vault redirect.
+- **Share link contract:** one-time link 302 lalu 404 (menggunakan object storage yang memang ada untuk stabilitas).
 
 ---
 
-## Status Implementasi
-### Implemented ✅
+## Status Implementasi ✅
+
 - Login Google (Supabase Auth)
 - Upload file (direct-to-storage)
+- Multi-file upload + UX progress (simulated)
 - List file (sorted newest)
 - Download aman (signed URL TTL pendek)
 - Hapus file (soft delete)
@@ -47,21 +62,16 @@ High-signal tests (Vitest):
 - Audit log page (timeline aktivitas) + filter action + copy request id
 - `GET /api/health`
 - Middleware: correlation id + latency log + security headers
-- Rate limiting (Upstash Redis) untuk endpoint publik & sensitif
+- Rate limiting (Upstash Redis) untuk endpoint publik & sensitif  
   - **Jika env Upstash tidak diset → limiter otomatis nonaktif (by design)** agar dev/CI tetap stabil
 - Cleanup job via GitHub Actions (cron)
-
-### Planned / Roadmap 🧭
-- Rename file (metadata)
-- Trash / restore UI
-- Multi-file upload + real progress tracking
-- E2E tests (Playwright) (opsional)
 
 ---
 
 ## Arsitektur singkat
 
 ### Direct Upload (Data plane vs Control plane)
+
 **Control plane (server):**
 1. `POST /api/uploads/init`  
    Validasi input (mime/size), generate `object_path`, return info upload.
@@ -71,15 +81,17 @@ High-signal tests (Vitest):
 
 **Finalize (server):**
 3. `POST /api/uploads/commit`  
-   Verifikasi object di storage + simpan metadata ke tabel `files` + audit log (idempotent).
+   Verifikasi object di storage + simpan metadata ke tabel `files` + audit log (**idempotent**).
 
-> Menghindari limit memory serverless saat upload file besar.
+> Ini sengaja untuk menghindari limit memory serverless saat upload file besar.
 
 ### Signed Download
+
 - Client → `POST /api/files/:id/signed-download`
 - Server verifikasi owner (RLS) → generate signed URL TTL pendek.
 
 ### Share Link (one-time + expiring) — anti race condition
+
 - Link publik: `/s/:token`
 - Token disimpan sebagai **hash** di DB (`token_hash`)
 - Konsumsi link dilakukan atomik di DB via RPC:
@@ -90,6 +102,7 @@ High-signal tests (Vitest):
 ---
 
 ## Security Model
+
 - **Supabase RLS:** user hanya bisa akses data miliknya (`files`, `share_links`, `audit_logs`)
 - **Private storage bucket** + signed URL TTL pendek
 - **Token safety:** share token tidak disimpan plaintext (hash)
@@ -100,6 +113,7 @@ High-signal tests (Vitest):
 ---
 
 ## Cleanup Job (Anti Cloud Shock)
+
 - Endpoint: `POST /api/maintenance/cleanup`
 - Aman karena wajib header `x-cron-secret`
 - Dipanggil via **GitHub Actions cron** setiap hari
@@ -111,11 +125,13 @@ High-signal tests (Vitest):
 ---
 
 ## Tech Stack
+
 - Next.js 14 (App Router) + TypeScript
 - Supabase (Auth, Postgres, Storage, RLS)
 - shadcn/ui + Tailwind CSS
 - Pino (structured logging)
 - Vitest (contract/unit tests)
+- Playwright (E2E tests)
 - Upstash Redis (rate limiting)
 - GitHub Actions:
   - `cleanup.yml` (scheduled cleanup)
@@ -126,6 +142,7 @@ High-signal tests (Vitest):
 ## Setup Lokal
 
 ### 1) Install
+
 ```bash
 npm install
 ```
@@ -134,7 +151,7 @@ npm install
 
 Gunakan template .env.example, lalu isi value.
 
-#### Wajib (local & prod):
+#### Wajib (local & prod)
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=
@@ -143,13 +160,13 @@ SUPABASE_SERVICE_ROLE_KEY=
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-#### Untuk cleanup job (wajib jika memakai endpoint cleanup):
+#### Untuk cleanup job (wajib jika memakai endpoint cleanup)
 
 ```
 CRON_SECRET=
 ```
 
-#### Opsional (rate limiting / recommended di production):
+#### Opsional (rate limiting / recommended di production)
 
 ```
 UPSTASH_REDIS_REST_URL=
@@ -160,7 +177,7 @@ Jika UPSTASH_* tidak diisi, limiter nonaktif (by design).
 
 ### 3) Jalankan
 
-```
+```bash
 npm run dev
 ```
 
@@ -168,20 +185,44 @@ npm run dev
 
 Di Supabase Auth settings, tambahkan redirect URL berikut:
 
-- Local: `http://localhost:3000/auth/callback`
-- Production: `https://sentiva.vercel.app/auth/callback` (atau domain Vercel kamu)
+Local: `http://localhost:3000/auth/callback`
 
-## Database & Migration
+Production: `https://sentiva.vercel.app/auth/callback` (atau domain Vercel kamu)
 
-Migrations ada di:
+Database & Migration
 
-- supabase/migrations
+## Migrations ada di:
+
+- `supabase/migrations`
 
 Push ke remote:
 
 ```
 npx supabase@latest link --project-ref <project_ref>
 npx supabase@latest db push
+```
+
+## E2E (Playwright)
+### Env untuk E2E
+
+Copy `.env.e2e.example` → `.env.e2e.local`, lalu isi:
+
+- `E2E_EXISTING_BUCKET`
+- `E2E_EXISTING_OBJECT_PATH`
+- `E2E_OWNER_ID`
+
+Nilai ini harus menunjuk ke object storage yang benar-benar ada, supaya test share link stabil (first hit dapat 302 signed URL).
+
+### Run
+
+```bash
+npm run test:e2e
+```
+
+Lihat report:
+
+```bash
+npx playwright show-report
 ```
 
 ## CI / Automation
