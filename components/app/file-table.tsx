@@ -38,8 +38,8 @@ type FileRow = {
   original_name: string;
   mime_type: string;
   size_bytes: number;
-  created_at: string; // ISO string
-  deleted_at?: string | null; // present when listing trash
+  created_at: string;
+  deleted_at?: string | null;
 };
 
 export type FileTypeFilter = "all" | "images" | "documents" | "media" | "other";
@@ -123,29 +123,27 @@ function classify(mime: string): FileTypeFilter {
   ) {
     return "documents";
   }
-
   return "other";
 }
 
 function SkeletonRow() {
   return (
-    <div className="grid min-w-[720px] grid-cols-12 items-center gap-3 px-4 py-3">
-      <div className="col-span-4">
+    <div className="grid min-w-[840px] grid-cols-12 items-center gap-3 px-4 py-3">
+      <div className="col-span-1">
+        <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+      </div>
+      <div className="col-span-3">
         <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
       </div>
-
       <div className="col-span-2 hidden lg:block">
         <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
       </div>
-
       <div className="col-span-3 hidden sm:block">
         <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
       </div>
-
       <div className="col-span-1 text-right">
         <div className="ml-auto h-4 w-12 animate-pulse rounded bg-muted" />
       </div>
-
       <div className="col-span-2 flex justify-end gap-2">
         <div className="h-8 w-20 animate-pulse rounded bg-muted" />
         <div className="h-8 w-10 animate-pulse rounded bg-muted" />
@@ -153,6 +151,8 @@ function SkeletonRow() {
     </div>
   );
 }
+
+type BulkAction = "bulk_delete" | "bulk_restore" | "bulk_purge";
 
 export function FileTable({
   refreshKey,
@@ -173,17 +173,32 @@ export function FileTable({
   const [loading, setLoading] = React.useState(true);
   const [busyId, setBusyId] = React.useState<string | null>(null);
 
+  // selection
+  const [selected, setSelected] = React.useState<Record<string, boolean>>({});
+  const selectedIds = React.useMemo(
+    () => Object.keys(selected).filter((k) => selected[k]),
+    [selected]
+  );
+
+  // share
   const [shareOpen, setShareOpen] = React.useState(false);
   const [shareUrl, setShareUrl] = React.useState<string | null>(null);
   const [shareLinkId, setShareLinkId] = React.useState<string | null>(null);
   const [shareExpiresAt, setShareExpiresAt] = React.useState<string | null>(null);
   const [shareMaxViews, setShareMaxViews] = React.useState<number | null>(null);
 
+  // delete confirm
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pendingDelete, setPendingDelete] = React.useState<{ id: string; name: string } | null>(
     null
   );
 
+  // bulk confirm
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [bulkAction, setBulkAction] = React.useState<BulkAction>("bulk_delete");
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+
+  // rename
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameBusy, setRenameBusy] = React.useState(false);
   const [renameTarget, setRenameTarget] = React.useState<{ id: string; current: string } | null>(
@@ -192,7 +207,6 @@ export function FileTable({
   const [renameValue, setRenameValue] = React.useState("");
 
   const preview = usePreviewDialog();
-
   const abortRef = React.useRef<AbortController | null>(null);
 
   const load = React.useCallback(async () => {
@@ -226,6 +240,16 @@ export function FileTable({
 
       const rows: FileRow[] = Array.isArray(j?.files) ? j.files : [];
       setFiles(sortNewestFirst(rows));
+
+      // prune selection if ids disappear
+      setSelected((prev) => {
+        const next: Record<string, boolean> = {};
+        const set = new Set(rows.map((r) => r.id));
+        for (const k of Object.keys(prev)) {
+          if (set.has(k)) next[k] = prev[k];
+        }
+        return next;
+      });
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         toast.error("Gagal memuat file (timeout). Coba refresh.");
@@ -244,6 +268,19 @@ export function FileTable({
     return () => abortRef.current?.abort();
   }, [refreshKey, load]);
 
+  function toggleAllVisible(checked: boolean, visibleIds: string[]) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      visibleIds.forEach((id) => (next[id] = checked));
+      return next;
+    });
+  }
+
+  function toggleOne(id: string, checked: boolean) {
+    setSelected((prev) => ({ ...prev, [id]: checked }));
+  }
+
+  // ---------- actions ----------
   async function handleShare(id: string) {
     const t = toast.loading("Membuat tautan…");
     try {
@@ -313,6 +350,24 @@ export function FileTable({
     }
   }
 
+  async function handlePurge(id: string) {
+    const t = toast.loading("Menghapus permanen…");
+    try {
+      setBusyId(id);
+      const res = await fetch(`/api/files/${id}/purge`, { method: "DELETE" });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error?.message ?? "Gagal hapus permanen");
+      toast.success("File dihapus permanen");
+      await load();
+      onChanged?.();
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      toast.dismiss(t);
+      setBusyId(null);
+    }
+  }
+
   function handlePreview(id: string, name: string) {
     preview.open(id, name);
   }
@@ -326,17 +381,14 @@ export function FileTable({
     if (!pendingDelete) return;
 
     const t = toast.loading("Menghapus file…");
-
     try {
       setBusyId(pendingDelete.id);
       const res = await fetch(`/api/files/${pendingDelete.id}`, { method: "DELETE" });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error?.message ?? "Gagal hapus file");
-
       toast.success("File dipindahkan ke sampah");
       setConfirmOpen(false);
       setPendingDelete(null);
-
       await load();
       onChanged?.();
     } catch (err: unknown) {
@@ -385,18 +437,64 @@ export function FileTable({
     }
   }
 
+  function openBulk(action: BulkAction) {
+    if (selectedIds.length === 0) return;
+    setBulkAction(action);
+    setBulkOpen(true);
+  }
+
+  async function confirmBulk() {
+    if (selectedIds.length === 0) return;
+
+    setBulkBusy(true);
+    const t = toast.loading("Memproses…");
+
+    try {
+      // simple & reliable: execute sequentially (keeps logs + avoids rate spikes)
+      for (const id of selectedIds) {
+        if (bulkAction === "bulk_delete") {
+          const res = await fetch(`/api/files/${id}`, { method: "DELETE" });
+          const j = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(j?.error?.message ?? "Gagal menghapus sebagian file");
+        } else if (bulkAction === "bulk_restore") {
+          const res = await fetch(`/api/files/${id}/restore`, { method: "POST" });
+          const j = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(j?.error?.message ?? "Gagal restore sebagian file");
+        } else if (bulkAction === "bulk_purge") {
+          const res = await fetch(`/api/files/${id}/purge`, { method: "DELETE" });
+          const j = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(j?.error?.message ?? "Gagal purge sebagian file");
+        }
+      }
+
+      toast.success("Selesai");
+      setSelected({});
+      setBulkOpen(false);
+      await load();
+      onChanged?.();
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      toast.dismiss(t);
+      setBulkBusy(false);
+    }
+  }
+
+  // filtering
   const query = (searchQuery ?? "").trim().toLowerCase();
   const visibleFiles = React.useMemo(() => {
     let rows = files;
 
-    if (typeFilter !== "all") {
-      rows = rows.filter((f) => classify(f.mime_type) === typeFilter);
-    }
+    if (typeFilter !== "all") rows = rows.filter((f) => classify(f.mime_type) === typeFilter);
     if (query.length > 0) {
       rows = rows.filter((f) => displayName(f.original_name).toLowerCase().includes(query));
     }
     return rows;
   }, [files, query, typeFilter]);
+
+  const visibleIds = React.useMemo(() => visibleFiles.map((f) => f.id), [visibleFiles]);
+  const allChecked = visibleIds.length > 0 && visibleIds.every((id) => selected[id]);
+  const someChecked = visibleIds.some((id) => selected[id]) && !allChecked;
 
   const emptyTitle =
     files.length === 0 ? (mode === "trash" ? "Trash kosong" : "Belum ada file") : "Tidak ada hasil";
@@ -409,10 +507,70 @@ export function FileTable({
 
   return (
     <>
+      {/* Bulk action bar */}
+      {selectedIds.length > 0 ? (
+        <div className="mb-3 flex flex-col gap-2 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm">
+            <span className="font-semibold">{selectedIds.length}</span> dipilih
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelected({})}
+              disabled={bulkBusy || busyId !== null}
+            >
+              Batal pilih
+            </Button>
+
+            {mode === "vault" ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => openBulk("bulk_delete")}
+                disabled={bulkBusy || busyId !== null}
+              >
+                Hapus dipilih
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openBulk("bulk_restore")}
+                  disabled={bulkBusy || busyId !== null}
+                >
+                  Restore dipilih
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => openBulk("bulk_purge")}
+                  disabled={bulkBusy || busyId !== null}
+                >
+                  Hapus permanen dipilih
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-xl border bg-background shadow-sm">
         <div className="overflow-x-auto">
-          <div className="grid min-w-[720px] grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
-            <div className="col-span-4">Nama</div>
+          <div className="grid min-w-[840px] grid-cols-12 gap-3 px-4 py-3 text-xs text-muted-foreground">
+            <div className="col-span-1">
+              <input
+                type="checkbox"
+                checked={allChecked}
+                ref={(el) => {
+                  if (el) el.indeterminate = someChecked;
+                }}
+                onChange={(e) => toggleAllVisible(e.target.checked, visibleIds)}
+              />
+            </div>
+            <div className="col-span-3">Nama</div>
             <div className="col-span-2 hidden lg:block">Tipe</div>
             <div className="col-span-3 hidden sm:block">{mode === "trash" ? "Dihapus" : "Diunggah"}</div>
             <div className="col-span-1 text-right">Ukuran</div>
@@ -456,9 +614,17 @@ export function FileTable({
                 return (
                   <div
                     key={f.id}
-                    className="grid min-w-[720px] grid-cols-12 items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/30"
+                    className="grid min-w-[840px] grid-cols-12 items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/30"
                   >
-                    <div className="col-span-4 truncate font-medium">{name}</div>
+                    <div className="col-span-1">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[f.id]}
+                        onChange={(e) => toggleOne(f.id, e.target.checked)}
+                      />
+                    </div>
+
+                    <div className="col-span-3 truncate font-medium">{name}</div>
 
                     <div className="col-span-2 hidden lg:block truncate text-muted-foreground">
                       {humanFileType(f.mime_type)}
@@ -474,11 +640,12 @@ export function FileTable({
 
                     <div className="col-span-2 flex justify-end gap-2">
                       {mode === "trash" ? (
+                        // ✅ ONLY ONE restore control here (no duplicate in menu)
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleRestore(f.id)}
-                          disabled={busyId === f.id || renameBusy}
+                          disabled={busyId === f.id || renameBusy || bulkBusy}
                           className="gap-2"
                         >
                           <RotateCcw className="h-4 w-4" />
@@ -489,7 +656,7 @@ export function FileTable({
                           size="sm"
                           variant="outline"
                           onClick={() => handleDownload(f.id)}
-                          disabled={busyId === f.id || renameBusy}
+                          disabled={busyId === f.id || renameBusy || bulkBusy}
                           className="gap-2"
                         >
                           <Download className="h-4 w-4" />
@@ -499,7 +666,12 @@ export function FileTable({
 
                       <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
-                          <Button type="button" size="sm" variant="outline" disabled={busyId === f.id || renameBusy}>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={busyId === f.id || renameBusy || bulkBusy}
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -556,16 +728,18 @@ export function FileTable({
                               </DropdownMenuItem>
                             </>
                           ) : (
-                            <DropdownMenuItem
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                handleRestore(f.id);
-                              }}
-                              className="gap-2"
-                            >
-                              <RotateCcw className="h-4 w-4" />
-                              Restore
-                            </DropdownMenuItem>
+                            <>
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  handlePurge(f.id);
+                                }}
+                                className="gap-2 text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Hapus permanen
+                              </DropdownMenuItem>
+                            </>
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -601,15 +775,38 @@ export function FileTable({
         }}
         title="Hapus file?"
         description={
-          pendingDelete
-            ? `File "${pendingDelete.name}" akan dipindahkan ke sampah (soft delete).`
-            : undefined
+          pendingDelete ? `File "${pendingDelete.name}" akan dipindahkan ke sampah (soft delete).` : undefined
         }
         confirmText="Hapus"
         cancelText="Batal"
         destructive
         loading={pendingDelete ? busyId === pendingDelete.id : false}
         onConfirm={confirmDelete}
+      />
+
+      <ConfirmDialog
+        open={bulkOpen}
+        onOpenChange={(v) => {
+          if (bulkBusy) return;
+          setBulkOpen(v);
+        }}
+        title={
+          bulkAction === "bulk_delete"
+            ? "Hapus file terpilih?"
+            : bulkAction === "bulk_restore"
+              ? "Restore file terpilih?"
+              : "Hapus permanen file terpilih?"
+        }
+        description={
+          bulkAction === "bulk_purge"
+            ? "Tindakan ini akan menghapus file dari storage dan metadata dari database. Tidak bisa dibatalkan."
+            : undefined
+        }
+        confirmText="Lanjutkan"
+        cancelText="Batal"
+        destructive={bulkAction !== "bulk_restore"}
+        loading={bulkBusy}
+        onConfirm={confirmBulk}
       />
 
       <Dialog
