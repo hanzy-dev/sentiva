@@ -13,9 +13,13 @@
 # testing
 /coverage
 
+# playwright (generated)
+playwright-report/
+test-results/
+
 # next.js
 /.next/
-/out/
+ /out/
 
 # production
 /build
@@ -30,8 +34,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (ignore all by default)
 .env*
+
+# allow committing env templates
+!.env.example
+!.env.e2e.example
 
 # vercel
 .vercel
@@ -42,5 +50,7 @@ next-env.d.ts
 
 # supabase local
 supabase/.branches
-supabase/.temp.vscode/
+supabase/.temp
+
+# editor
 .vscode/
