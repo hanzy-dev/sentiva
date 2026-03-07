@@ -10,8 +10,11 @@ const limiter = createRateLimiter({
   window: "60 s",
 });
 
-function notFound() {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
+function notFound(requestId?: string) {
+  const res = NextResponse.json({ error: "Not found" }, { status: 404 });
+  res.headers.set("Cache-Control", "no-store");
+  if (requestId) res.headers.set("x-request-id", requestId);
+  return res;
 }
 
 function getOrCreateRequestId(request: Request): string {
@@ -24,7 +27,10 @@ function getOrCreateRequestId(request: Request): string {
   return crypto.randomUUID();
 }
 
-export async function GET(request: Request, { params }: { params: { token: string } }) {
+export async function GET(
+  request: Request,
+  { params }: { params: { token: string } }
+) {
   const token = params.token;
   if (!token || token.length < 20) return notFound();
 
@@ -44,15 +50,17 @@ export async function GET(request: Request, { params }: { params: { token: strin
   const token_hash = sha256(token);
   const admin = createSupabaseAdminClient();
 
+  // ✅ IMPORTANT: match NEW RPC signature in DB (p_token_hash, p_request_id)
   const { data, error } = await admin.rpc("consume_share_link", {
     p_token_hash: token_hash,
     p_request_id: requestId,
   });
 
-  if (error) return notFound();
+  // keep neutral behavior for invalid/expired/used tokens
+  if (error) return notFound(requestId);
 
   const row = Array.isArray(data) ? data[0] : data;
-  if (!row?.bucket || !row?.object_path) return notFound();
+  if (!row?.bucket || !row?.object_path) return notFound(requestId);
 
   const { data: signed, error: signErr } = await admin.storage
     .from(row.bucket)
